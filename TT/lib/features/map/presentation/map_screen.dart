@@ -371,6 +371,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               padding: EdgeInsets.symmetric(horizontal: 16.0),
               child: Icon(Icons.offline_pin, color: Colors.green),
             ),
+          IconButton(
+            icon: const Icon(Icons.person_outline),
+            onPressed: () => context.push('/profile'),
+            tooltip: 'Profile',
+          ),
         ],
       ),
       body: MapLibreMap(

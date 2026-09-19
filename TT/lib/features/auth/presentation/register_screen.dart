@@ -31,7 +31,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     setState(() => _isLoading = false);
 
     if (success && mounted) {
-      context.go('/onboarding');
+      context.go(_role == 'MEMBER' ? '/onboarding' : '/groups');
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Registration failed. Please try again.')),

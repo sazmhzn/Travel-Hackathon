@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:go_router/go_router.dart';
 
 class RadarScreen extends StatefulWidget {
   const RadarScreen({super.key});
@@ -47,7 +48,16 @@ class _RadarScreenState extends State<RadarScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Proximity Radar')),
+      appBar: AppBar(
+        title: const Text('Proximity Radar'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person_outline),
+            onPressed: () => context.push('/profile'),
+            tooltip: 'Profile',
+          ),
+        ],
+      ),
       body: ListView.builder(
         itemCount: _scanResults.length,
         itemBuilder: (context, index) {

@@ -5,6 +5,16 @@ import '../data/group_service.dart';
 import '../../auth/data/auth_service.dart';
 import 'group_widgets.dart';
 
+enum _GroupSort {
+  newest('Newest first'),
+  oldest('Oldest first'),
+  alphabetical('Alphabetical (A-Z)');
+
+  const _GroupSort(this.label);
+
+  final String label;
+}
+
 class GroupListScreen extends ConsumerStatefulWidget {
   const GroupListScreen({super.key});
 
@@ -17,6 +27,9 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
   bool _isLoading = true;
   bool _isBusy = false;
   String? _userRole;
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+  _GroupSort _sort = _GroupSort.newest;
 
   bool get _isGuide => _userRole == 'GUIDE';
 
@@ -24,6 +37,12 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -37,11 +56,40 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
     });
   }
 
+  List<Map<String, dynamic>> get _visibleGroups {
+    final query = _searchQuery.trim().toLowerCase();
+    final groups = _groups.where((g) {
+      if (query.isEmpty) return true;
+      final name = (g['name'] ?? '').toString().toLowerCase();
+      final description = (g['description'] ?? '').toString().toLowerCase();
+      return name.contains(query) || description.contains(query);
+    }).toList();
+
+    groups.sort((a, b) {
+      switch (_sort) {
+        case _GroupSort.alphabetical:
+          return _name(a).compareTo(_name(b));
+        case _GroupSort.newest:
+          return _createdAt(b).compareTo(_createdAt(a));
+        case _GroupSort.oldest:
+          return _createdAt(a).compareTo(_createdAt(b));
+      }
+    });
+    return groups;
+  }
+
+  String _name(Map<String, dynamic> group) =>
+      (group['name'] ?? '').toString().toLowerCase();
+
+  DateTime _createdAt(Map<String, dynamic> group) =>
+      DateTime.tryParse(group['created_at']?.toString() ?? '')?.toLocal() ??
+      DateTime.fromMillisecondsSinceEpoch(0);
+
   List<Map<String, dynamic>> get _activeGroups =>
-      _groups.where((g) => g['is_active'] != false).toList();
+      _visibleGroups.where((g) => g['is_active'] != false).toList();
 
   List<Map<String, dynamic>> get _inactiveGroups =>
-      _groups.where((g) => g['is_active'] == false).toList();
+      _visibleGroups.where((g) => g['is_active'] == false).toList();
 
   void _showCreateGroupSheet() {
     final nameController = TextEditingController();
@@ -326,36 +374,81 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
     context.push('/expedition/${group['id']}');
   }
 
+  Widget _searchBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: TextField(
+        controller: _searchController,
+        textInputAction: TextInputAction.search,
+        onChanged: (value) => setState(() => _searchQuery = value),
+        decoration: InputDecoration(
+          hintText: 'Search expeditions',
+          isDense: true,
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchQuery.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Clear search',
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Expeditions'),
         actions: [
+          PopupMenuButton<_GroupSort>(
+            icon: const Icon(Icons.sort),
+            tooltip: 'Sort',
+            initialValue: _sort,
+            onSelected: (value) => setState(() => _sort = value),
+            itemBuilder: (context) => [
+              for (final option in _GroupSort.values)
+                CheckedPopupMenuItem(
+                  value: option,
+                  checked: option == _sort,
+                  child: Text(option.label),
+                ),
+            ],
+          ),
           IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Log out',
-            onPressed: () async {
-              if (!mounted) return;
-              final router = GoRouter.of(context);
-              await ref.read(authServiceProvider).logout();
-              router.go('/login');
-            },
+            icon: const Icon(Icons.person_outline),
+            tooltip: 'Profile',
+            onPressed: () => context.push('/profile'),
           ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadData,
-              child: _groups.isEmpty
-                  ? _EmptyState(isGuide: _isGuide)
-                  : ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-                      children: _isGuide
-                          ? _buildGuideList()
-                          : _buildMemberList(),
-                    ),
+          : Column(
+              children: [
+                _searchBar(),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _loadData,
+                    child: _groups.isEmpty
+                        ? _EmptyState(isGuide: _isGuide)
+                        : _visibleGroups.isEmpty
+                            ? _NoResultsState(query: _searchQuery)
+                            : ListView(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                                children: _isGuide
+                                    ? _buildGuideList()
+                                    : _buildMemberList(),
+                              ),
+                  ),
+                ),
+              ],
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isGuide ? _showCreateGroupSheet : _showJoinSheet,
@@ -571,6 +664,36 @@ class _GroupCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _NoResultsState extends StatelessWidget {
+  const _NoResultsState({required this.query});
+
+  final String query;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ListView(
+      padding: const EdgeInsets.all(32),
+      children: [
+        const SizedBox(height: 48),
+        Icon(Icons.search_off, size: 56, color: scheme.outline),
+        const SizedBox(height: 16),
+        Text(
+          'No expeditions match "$query"',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Try a different name or clear the search.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: scheme.onSurfaceVariant),
+        ),
+      ],
     );
   }
 }

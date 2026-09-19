@@ -10,7 +10,9 @@ class AuthService {
 
   AuthService(this._ref);
 
-  Future<bool> login(String email, String password) async {
+  /// Signs in and returns the authenticated user's profile (or null on
+  /// failure) so callers can route based on the user's role.
+  Future<Map<String, dynamic>?> login(String email, String password) async {
     try {
       final client = _ref.read(apiClientProvider).client;
       final response = await client.post('/auth/login', data: {
@@ -23,18 +25,16 @@ class AuthService {
         if (token != null) {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('jwt_token', token);
-          // Optional: Fetch user profile
-          await getProfile();
-          return true;
+          return await getProfile();
         }
       }
-      return false;
+      return null;
     } catch (e) {
       if (e is DioException) {
         print('Login error details: ${e.response?.data}');
       }
       print('Login error: $e');
-      return false;
+      return null;
     }
   }
 

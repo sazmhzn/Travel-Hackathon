@@ -18,13 +18,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _login() async {
     setState(() => _isLoading = true);
-    final success = await ref
+    final profile = await ref
         .read(authServiceProvider)
         .login(_emailController.text, _passwordController.text);
     setState(() => _isLoading = false);
 
-    if (success && mounted) {
-      context.go('/onboarding'); // Or groups once implemented
+    if (profile != null && mounted) {
+      // Guides manage expeditions; members pick a region to download maps.
+      final isMember = profile['role'] == 'MEMBER';
+      context.go(isMember ? '/onboarding' : '/groups');
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
