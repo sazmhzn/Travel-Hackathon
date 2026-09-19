@@ -9,8 +9,12 @@ final meshNetworkServiceProvider = Provider((ref) => MeshNetworkService(ref));
 
 class MeshNetworkService {
   final Ref _ref;
-  static const MethodChannel _methodChannel = MethodChannel('com.example.tt/mesh_control');
-  static const EventChannel _eventChannel = EventChannel('com.example.tt/mesh_updates');
+  static const MethodChannel _methodChannel = MethodChannel(
+    'com.example.tt/mesh_control',
+  );
+  static const EventChannel _eventChannel = EventChannel(
+    'com.example.tt/mesh_updates',
+  );
 
   StreamSubscription? _meshSubscription;
 
@@ -46,7 +50,9 @@ class MeshNetworkService {
   Future<void> broadcastPayload(Map<String, dynamic> payloadMap) async {
     try {
       final String jsonPayload = jsonEncode(payloadMap);
-      await _methodChannel.invokeMethod('broadcastPayload', {'payload': jsonPayload});
+      await _methodChannel.invokeMethod('broadcastPayload', {
+        'payload': jsonPayload,
+      });
     } on PlatformException catch (e) {
       print("Failed to broadcast payload: '${e.message}'.");
     }
@@ -55,12 +61,15 @@ class MeshNetworkService {
   void _startListeningForPayloads() {
     if (_meshSubscription != null) return;
 
-    _meshSubscription = _eventChannel.receiveBroadcastStream().listen((dynamic event) {
-      final String jsonPayload = event as String;
-      _handleIncomingPayload(jsonPayload);
-    }, onError: (dynamic error) {
-      print('Mesh Payload error: ${error.message}');
-    });
+    _meshSubscription = _eventChannel.receiveBroadcastStream().listen(
+      (dynamic event) {
+        final String jsonPayload = event as String;
+        _handleIncomingPayload(jsonPayload);
+      },
+      onError: (dynamic error) {
+        print('Mesh Payload error: ${error.message}');
+      },
+    );
   }
 
   void _stopListeningForPayloads() {
@@ -71,23 +80,22 @@ class MeshNetworkService {
   Future<void> _handleIncomingPayload(String jsonPayload) async {
     try {
       final data = jsonDecode(jsonPayload) as Map<String, dynamic>;
-      
+
       // Parse to our Isar DB Record
-      final record = OfflineTelemetryRecord()
-        ..userId = data['userId'] as String
-        ..groupId = data['groupId'] as String
-        ..lat = (data['lat'] as num).toDouble()
-        ..lng = (data['lng'] as num).toDouble()
-        ..altitude = (data['altitude'] as num).toDouble()
-        ..speed = (data['speed'] as num).toDouble()
-        ..battery = data['battery'] as int
-        ..recordedAt = DateTime.parse(data['recordedAt'] as String)
-        ..isSynced = false;
+      final record = OfflineTelemetryRecord(
+        userId: data['userId'] as String,
+        groupId: data['groupId'] as String,
+        lat: (data['lat'] as num).toDouble(),
+        lng: (data['lng'] as num).toDouble(),
+        altitude: (data['altitude'] as num).toDouble(),
+        speed: (data['speed'] as num).toDouble(),
+        battery: data['battery'] as int,
+        recordedAt: DateTime.parse(data['recordedAt'] as String),
+      );
 
       // Save to local Isar Database using SyncManager
       await _ref.read(syncManagerProvider).saveTelemetryRecord(record);
       print("Saved offline telemetry from user ${record.userId}");
-
     } catch (e) {
       print("Failed to parse mesh payload: $e");
     }

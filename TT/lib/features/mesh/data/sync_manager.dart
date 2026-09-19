@@ -1,50 +1,55 @@
-import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:isar/isar.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart';
 import '../../../core/api_client.dart';
 import 'offline_telemetry_record.dart';
 
 final syncManagerProvider = Provider((ref) => SyncManager(ref));
 
 class SyncManager {
+  static const _table = 'offline_telemetry_records';
+
   final Ref _ref;
-  Isar? _isar;
+  Future<Database>? _db;
 
-  SyncManager(this._ref) {
-    _initIsar();
-  }
+  SyncManager(this._ref);
 
-  Future<void> _initIsar() async {
-    if (Isar.instanceNames.isEmpty) {
-      final dir = await getApplicationDocumentsDirectory();
-      _isar = await Isar.open(
-        [OfflineTelemetryRecordSchema],
-        directory: dir.path,
-      );
-    } else {
-      _isar = Isar.getInstance();
-    }
+  Future<Database> _database() {
+    return _db ??= openDatabase(
+      'tt_telemetry.db',
+      version: 1,
+      onCreate: (db, version) async {
+        await db.execute('''
+CREATE TABLE $_table (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId TEXT NOT NULL,
+  groupId TEXT NOT NULL,
+  lat REAL NOT NULL,
+  lng REAL NOT NULL,
+  altitude REAL NOT NULL,
+  speed REAL NOT NULL,
+  battery INTEGER NOT NULL,
+  recordedAt INTEGER NOT NULL,
+  isSynced INTEGER NOT NULL DEFAULT 0
+)
+''');
+      },
+    );
   }
 
   Future<void> saveTelemetryRecord(OfflineTelemetryRecord record) async {
-    await _initIsar();
-    await _isar!.writeTxn(() async {
-      await _isar!.offlineTelemetryRecords.put(record);
-    });
+    final db = await _database();
+    await db.insert(_table, record.toMap());
   }
 
   /// Called when internet connection is restored to upload cached records
   Future<void> syncMeshTelemetry() async {
-    await _initIsar();
+    final db = await _database();
     final client = _ref.read(apiClientProvider).client;
 
-    final unsyncedRecords = await _isar!.offlineTelemetryRecords
-        .filter()
-        .isSyncedEqualTo(false)
-        .findAll();
+    final rows = await db.query(_table, where: 'isSynced = 0');
+    if (rows.isEmpty) return;
 
-    if (unsyncedRecords.isEmpty) return;
+    final unsyncedRecords = rows.map(OfflineTelemetryRecord.fromMap).toList();
 
     final recordsJson = unsyncedRecords.map((r) => {
       "userId": r.userId,
@@ -64,13 +69,12 @@ class SyncManager {
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // Mark as synced
-        await _isar!.writeTxn(() async {
-          for (var record in unsyncedRecords) {
-            record.isSynced = true;
-            await _isar!.offlineTelemetryRecords.put(record);
-          }
-        });
+        await db.update(
+          _table,
+          {'isSynced': 1},
+          where: 'id IN (${List.filled(unsyncedRecords.length, '?').join(',')})',
+          whereArgs: unsyncedRecords.map((r) => r.id).toList(),
+        );
       }
     } catch (e) {
       print("Failed to sync telemetry: $e");

@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:workmanager/workmanager.dart';
 import '../features/mesh/data/sync_manager.dart';
@@ -5,6 +7,7 @@ import '../features/mesh/data/sync_manager.dart';
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
+    DartPluginRegistrant.ensureInitialized();
     print("Native background task started: $task");
     
     final container = ProviderContainer();

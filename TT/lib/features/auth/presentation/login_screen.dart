@@ -14,20 +14,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _obscurePassword = true;
 
   Future<void> _login() async {
     setState(() => _isLoading = true);
-    final success = await ref.read(authServiceProvider).login(
-      _emailController.text,
-      _passwordController.text,
-    );
+    final success = await ref
+        .read(authServiceProvider)
+        .login(_emailController.text, _passwordController.text);
     setState(() => _isLoading = false);
 
     if (success && mounted) {
       context.go('/onboarding'); // Or groups once implemented
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Login failed. Please check your credentials.')),
+        const SnackBar(
+          content: Text('Login failed. Please check your credentials.'),
+        ),
       );
     }
   }
@@ -65,8 +67,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     'Travel & Emergency',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -86,11 +88,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 14),
                   TextField(
                     controller: _passwordController,
-                    obscureText: true,
+                    obscureText: _obscurePassword,
                     onSubmitted: (_) => _login(),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Password',
-                      prefixIcon: Icon(Icons.lock_outline),
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
+                        onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword,
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
