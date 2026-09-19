@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/app_theme.dart';
 import 'core/router.dart';
 import 'features/map/data/off_path_calculator.dart';
 import 'core/background_sync.dart';
@@ -24,10 +25,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp.router(
       title: 'Travel & Emergency App',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light,
       routerConfig: router,
     );
   }

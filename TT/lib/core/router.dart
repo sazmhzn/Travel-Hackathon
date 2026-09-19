@@ -7,6 +7,7 @@ import '../features/emergency/presentation/radar_screen.dart';
 import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/register_screen.dart';
 import '../features/groups/presentation/group_list_screen.dart';
+import '../features/groups/presentation/group_details_screen.dart';
 import '../shared/presentation/main_navigation_wrapper.dart';
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
@@ -43,6 +44,12 @@ final router = GoRouter(
     GoRoute(
       path: '/onboarding',
       builder: (context, state) => const OnboardingScreen(),
+    ),
+    GoRoute(
+      path: '/expedition/:groupId',
+      builder: (context, state) => GroupDetailsScreen(
+        groupId: state.pathParameters['groupId']!,
+      ),
     ),
     ShellRoute(
       navigatorKey: _shellNavigatorKey,

@@ -11,8 +11,6 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 }
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
-  final TextEditingController _controller = TextEditingController();
-
   // Mock regions for demonstration
   final List<Map<String, dynamic>> _regions = [
     {
@@ -31,47 +29,61 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Travel Onboarding')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Where would you like to travel?',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            const Text('Select a region to download offline maps:'),
-            const SizedBox(height: 10),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _regions.length,
-                itemBuilder: (context, index) {
-                  final region = _regions[index];
-                  return ListTile(
-                    title: Text(region['name']),
-                    subtitle: Text('Bounds: ${region['bounds']}'),
-                    onTap: () async {
-                      final bounds = region['bounds'] as List<double>;
-                      await ref.read(onboardingControllerProvider.notifier).saveDestination(
-                            region['name'],
-                            bounds[0],
-                            bounds[1],
-                            bounds[2],
-                            bounds[3],
-                          );
-                      if (mounted) {
-                        context.go('/map');
-                      }
-                    },
-                  );
-                },
+      appBar: AppBar(title: const Text('Choose your region')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Text(
+            'Where would you like to travel?',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Select a region to download offline maps before you lose signal.',
+            style: TextStyle(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 20),
+          for (final region in _regions)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Card(
+                child: ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  leading: CircleAvatar(
+                    backgroundColor: scheme.primaryContainer,
+                    foregroundColor: scheme.onPrimaryContainer,
+                    child: const Icon(Icons.terrain),
+                  ),
+                  title: Text(
+                    region['name'],
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: Text('Bounds: ${region['bounds']}'),
+                  trailing: const Icon(Icons.download_for_offline_outlined),
+                  onTap: () async {
+                    final bounds = region['bounds'] as List<double>;
+                    await ref
+                        .read(onboardingControllerProvider.notifier)
+                        .saveDestination(
+                          region['name'],
+                          bounds[0],
+                          bounds[1],
+                          bounds[2],
+                          bounds[3],
+                        );
+                    if (context.mounted) {
+                      context.go('/map');
+                    }
+                  },
+                ),
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }

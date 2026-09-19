@@ -3,6 +3,17 @@ import { z } from 'zod';
 
 dotenv.config();
 
+// z.coerce.boolean() treats any non-empty string (including "false") as true.
+// Parse explicit env flags properly so local dev does not force SSL.
+const envBoolean = (defaultValue: boolean) =>
+  z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (value === undefined || value === '') return defaultValue;
+      return !['false', '0', 'no', 'off'].includes(value.toLowerCase());
+    });
+
 const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   HOST: z.string().default('0.0.0.0'),
@@ -18,7 +29,7 @@ const envSchema = z.object({
   DB_USER: z.string().default('postgres'),
   DB_PASSWORD: z.string().default('postgres_travel_2026'),
   DB_NAME: z.string().default('travel_emergency_db'),
-  DB_SSL: z.coerce.boolean().default(false),
+  DB_SSL: envBoolean(false),
 
   // Redis
   REDIS_HOST: z.string().default('localhost'),
@@ -28,7 +39,7 @@ const envSchema = z.object({
   // MinIO / S3
   MINIO_ENDPOINT: z.string().default('localhost'),
   MINIO_PORT: z.coerce.number().default(9000),
-  MINIO_USE_SSL: z.coerce.boolean().default(false),
+  MINIO_USE_SSL: envBoolean(false),
   MINIO_ACCESS_KEY: z.string().default('minioadmin'),
   MINIO_SECRET_KEY: z.string().default('minioadmin123'),
   MINIO_BUCKET: z.string().default('travel-media'),

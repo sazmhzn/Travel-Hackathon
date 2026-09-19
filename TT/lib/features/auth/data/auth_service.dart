@@ -78,8 +78,12 @@ class AuthService {
       final client = _ref.read(apiClientProvider).client;
       final response = await client.get('/auth/me');
       if (response.statusCode == 200) {
-        // Save user info locally if needed
-        return response.data;
+        final data = response.data;
+        // Backend returns { user: {...} }.
+        if (data is Map<String, dynamic> && data['user'] is Map) {
+          return (data['user'] as Map).cast<String, dynamic>();
+        }
+        return data as Map<String, dynamic>;
       }
       return null;
     } catch (e) {
