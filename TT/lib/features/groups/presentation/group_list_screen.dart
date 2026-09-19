@@ -383,9 +383,9 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 16),
               decoration: BoxDecoration(
-                color: Theme.of(dialogContext)
-                    .colorScheme
-                    .surfaceContainerHighest,
+                color: Theme.of(
+                  dialogContext,
+                ).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: SelectableText(
@@ -483,8 +483,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
                     child: (_myGroups.isEmpty && _browseGroups.isEmpty)
                         ? _EmptyState(isGuide: _isGuide)
                         : ListView(
-                            padding:
-                                const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
                             children: _buildList(),
                           ),
                   ),
@@ -588,8 +587,9 @@ class _GroupCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   CircleAvatar(
-                    backgroundColor:
-                        scheme.primaryContainer.withValues(alpha: ongoing ? 1 : 0.5),
+                    backgroundColor: scheme.primaryContainer.withValues(
+                      alpha: ongoing ? 1 : 0.5,
+                    ),
                     foregroundColor: scheme.onPrimaryContainer,
                     child: const Icon(Icons.terrain),
                   ),
@@ -652,8 +652,9 @@ class _GroupCard extends StatelessWidget {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color:
-                        scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                    color: scheme.surfaceContainerHighest.withValues(
+                      alpha: 0.5,
+                    ),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Row(
@@ -712,10 +713,7 @@ class _GroupCard extends StatelessWidget {
                       label: const Text('Manage'),
                     )
                   else
-                    Icon(
-                      Icons.chevron_right,
-                      color: scheme.onSurfaceVariant,
-                    ),
+                    Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
                 ],
               ),
             ],
