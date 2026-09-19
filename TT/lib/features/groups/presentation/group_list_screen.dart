@@ -68,7 +68,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'New Expedition',
+                  'Add Group',
                   style: Theme.of(sheetContext).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 4),
@@ -138,7 +138,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.add),
-                  label: Text(submitting ? 'Creating...' : 'Create Expedition'),
+                  label: Text(submitting ? 'Creating...' : 'Create Group'),
                 ),
               ],
             ),
@@ -172,7 +172,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Join Expedition',
+                  'Join Group',
                   style: Theme.of(sheetContext).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 4),
@@ -228,7 +228,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.login),
-                  label: Text(submitting ? 'Joining...' : 'Join Expedition'),
+                  label: Text(submitting ? 'Joining...' : 'Join Group'),
                 ),
               ],
             ),
@@ -270,7 +270,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.celebration, size: 36),
-        title: const Text('Expedition created'),
+        title: const Text('Group created'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -360,7 +360,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isGuide ? _showCreateGroupSheet : _showJoinSheet,
         icon: Icon(_isGuide ? Icons.add : Icons.group_add),
-        label: Text(_isGuide ? 'New Expedition' : 'Join Expedition'),
+        label: Text(_isGuide ? 'Add Group' : 'Join Group'),
       ),
     );
   }
@@ -598,7 +598,7 @@ class _EmptyState extends StatelessWidget {
         Text(
           isGuide
               ? 'Create your first expedition and share the invite code with your members.'
-              : 'Ask your guide for the invite code, then tap Join Expedition.',
+              : 'Ask your guide for the invite code, then tap Join Group.',
           textAlign: TextAlign.center,
           style: TextStyle(color: scheme.onSurfaceVariant),
         ),
