@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "TT: dev (debug)",
+      "type": "dart",
+      "request": "launch",
+      "program": "lib/main.dart",
+      "cwd": "${workspaceFolder}/TT",
+      "flutterMode": "debug",
+      "deviceId": "chrome"
+    },
+    {
+      "name": "TT: prod (release)",
+      "type": "dart",
+      "request": "launch",
+      "program": "lib/main.dart",
+      "cwd": "${workspaceFolder}/TT",
+      "flutterMode": "release",
+      "deviceId": "chrome"
+    },
+    {
+      "name": "TT: web (chrome)",
+      "type": "dart",
+      "request": "launch",
+      "program": "lib/main.dart",
+      "cwd": "${workspaceFolder}/TT",
+      "flutterMode": "profile",
+      "deviceId": "chrome"
+    }
+  ]
+}
