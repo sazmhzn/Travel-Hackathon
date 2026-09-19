@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { PlansService } from '../src/modules/plans/plans.service.js';
+import { AuthService } from '../src/modules/auth/auth.service.js';
+import { GroupsService } from '../src/modules/groups/groups.service.js';
 
 describe('PlansService Integration', () => {
+  let groupId: string;
+
   const sampleGeoJson = {
     type: 'LineString',
     coordinates: [
@@ -11,8 +15,23 @@ describe('PlansService Integration', () => {
     ],
   };
 
+  beforeAll(async () => {
+    const guide = await AuthService.register({
+      email: `plan-guide-${Date.now()}@test.com`,
+      password: 'Password123!',
+      name: 'Plan Guide',
+      role: 'GUIDE',
+    });
+
+    const group = await GroupsService.createGroup({
+      name: 'Shivapuri Hiking Team',
+      createdBy: guide.id,
+    });
+
+    groupId = group.id;
+  });
+
   it('should create travel plan and calculate distance and bounding box', async () => {
-    const groupId = `test-plan-group-${Date.now()}`;
     const plan = await PlansService.createPlan({
       groupId,
       title: 'Shivapuri National Park Trail',

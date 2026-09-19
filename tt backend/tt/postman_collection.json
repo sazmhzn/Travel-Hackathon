@@ -325,6 +325,58 @@
       ]
     },
     {
+      "name": "3.1 Spatial Routes (Guide Path Ingestion)",
+      "item": [
+        {
+          "name": "Record Spatial Track (Guide Sync)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var json = pm.response.json();",
+                  "    if (json.route && json.route.id) {",
+                  "        pm.environment.set('routeId', json.route.id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Dingboche to Lobuche High Pass\",\n  \"activity_type\": \"trekking\",\n  \"visibility\": \"public\",\n  \"geoJson\": {\n    \"type\": \"LineString\",\n    \"coordinates\": [\n      [86.7125, 27.8010],\n      [86.7230, 27.8105],\n      [86.7350, 27.8220],\n      [86.7460, 27.8340],\n      [86.7640, 27.8480]\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/routes/record",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "routes", "record"]
+            },
+            "description": "Ingests raw GPS breadcrumbs, simplifies the path using Douglas-Peucker (tolerance: 0.0001), calculates geodesic distance in meters, and generates the map download bounding box (Envelope). Requires Guide role."
+          }
+        },
+        {
+          "name": "Get Route by ID",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/routes/{{routeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "routes", "{{routeId}}"]
+            },
+            "description": "Fetch saved route details with GeoJSON path and map bounding box."
+          }
+        }
+      ]
+    },
+    {
       "name": "4. Real-Time Telemetry & Mesh Relay",
       "item": [
         {
@@ -422,7 +474,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"Suspension Bridge Panorama Point\",\n  \"description\": \"Great view of Ama Dablam peak before the steep climb\",\n  \"groupId\": \"{{groupId}}\",\n  \"visibility\": \"PUBLIC\",\n  \"lat\": 27.8200,\n  \"lng\": 86.7300,\n  \"mediaUrls\": [\n    \"http://localhost:9000/travel-media/uploads/ama_dablam_view.jpg\"\n  ]\n}"
+              "raw": "{\n  \"title\": \"Suspension Bridge Panorama Point\",\n  \"description\": \"Great view of Ama Dablam peak before the steep climb\",\n  \"groupId\": \"{{groupId}}\",\n  \"visibility\": \"PUBLIC\",\n  \"lat\": 27.8200,\n  \"lng\": 86.7300,\n  \"mediaUrls\": [\n    \"http://192.168.110.58:9000/travel-media/uploads/ama_dablam_view.jpg\"\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/feed/activities",
