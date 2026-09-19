@@ -136,7 +136,7 @@ export class DestinationRepository {
   ): Promise<any> {
     try {
       const result = await query(
-        `INSERT INTO data_snapshots (destination_id, data_type, provider, request_params, response_data, expires_at)
+        `INSERT INTO destination_data_snapshots (destination_id, data_type, provider, request_params, response_data, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
         [
@@ -158,7 +158,7 @@ export class DestinationRepository {
   static async getDataSnapshots(destinationId: string, dataType: string, limit: number = 10): Promise<any[]> {
     try {
       const result = await query(
-        `SELECT * FROM data_snapshots
+        `SELECT * FROM destination_data_snapshots
          WHERE destination_id = $1 AND data_type = $2
          ORDER BY created_at DESC
          LIMIT $3`,
@@ -174,7 +174,7 @@ export class DestinationRepository {
   static async saveGenerationJob(userId: string, destinationId: string | null, requestHash: string): Promise<any> {
     try {
       const result = await query(
-        `INSERT INTO generation_jobs (user_id, destination_id, request_hash, status)
+        `INSERT INTO destination_generation_jobs (user_id, destination_id, request_hash, status)
          VALUES ($1, $2, $3, 'QUEUED')
          RETURNING *`,
         [userId, destinationId, requestHash]
@@ -222,7 +222,7 @@ export class DestinationRepository {
       params.push(id);
 
       await query(
-        `UPDATE generation_jobs SET ${sets.join(', ')} WHERE id = $${idx}`,
+        `UPDATE destination_generation_jobs SET ${sets.join(', ')} WHERE id = $${idx}`,
         params
       );
     } catch (err) {
@@ -234,7 +234,7 @@ export class DestinationRepository {
   static async findGenerationJobByHash(requestHash: string): Promise<any> {
     try {
       const result = await query(
-        'SELECT * FROM generation_jobs WHERE request_hash = $1 ORDER BY created_at DESC LIMIT 1',
+        'SELECT * FROM destination_generation_jobs WHERE request_hash = $1 ORDER BY created_at DESC LIMIT 1',
         [requestHash]
       );
       return result.rows[0] ?? null;
