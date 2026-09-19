@@ -12,6 +12,7 @@ import { telemetryRoutes } from './modules/telemetry/telemetry.controller.js';
 import { emergencyRoutes } from './modules/emergency/emergency.controller.js';
 import { feedRoutes } from './modules/feed/feed.controller.js';
 import { storageRoutes } from './modules/storage/storage.controller.js';
+import { routeRoutes } from './modules/routes/routes.controller.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = fastify({
@@ -73,6 +74,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(emergencyRoutes, { prefix: '/api/emergency' });
   await app.register(feedRoutes, { prefix: '/api/feed' });
   await app.register(storageRoutes, { prefix: '/api/storage' });
+  await app.register(routeRoutes, { prefix: '/api/routes' });
 
   return app;
 }

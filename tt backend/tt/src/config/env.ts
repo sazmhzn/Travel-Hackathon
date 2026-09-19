@@ -18,7 +18,7 @@ const envSchema = z.object({
   DB_USER: z.string().default('postgres'),
   DB_PASSWORD: z.string().default('postgres_travel_2026'),
   DB_NAME: z.string().default('travel_emergency_db'),
-  DB_SSL: z.coerce.boolean().default(false),
+  DB_SSL: z.preprocess((val) => val === 'true' || val === true, z.boolean()).default(false),
 
   // Redis
   REDIS_HOST: z.string().default('localhost'),
@@ -28,7 +28,7 @@ const envSchema = z.object({
   // MinIO / S3
   MINIO_ENDPOINT: z.string().default('localhost'),
   MINIO_PORT: z.coerce.number().default(9000),
-  MINIO_USE_SSL: z.coerce.boolean().default(false),
+  MINIO_USE_SSL: z.preprocess((val) => val === 'true' || val === true, z.boolean()).default(false),
   MINIO_ACCESS_KEY: z.string().default('minioadmin'),
   MINIO_SECRET_KEY: z.string().default('minioadmin123'),
   MINIO_BUCKET: z.string().default('travel-media'),
