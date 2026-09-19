@@ -15,6 +15,9 @@ enum _GroupSort {
   final String label;
 }
 
+String _statusOf(Map<String, dynamic> group) =>
+    (group['status'] ?? 'PENDING').toString().toUpperCase();
+
 class GroupListScreen extends ConsumerStatefulWidget {
   const GroupListScreen({super.key});
 
@@ -23,10 +26,12 @@ class GroupListScreen extends ConsumerStatefulWidget {
 }
 
 class _GroupListScreenState extends ConsumerState<GroupListScreen> {
-  List<Map<String, dynamic>> _groups = [];
+  List<Map<String, dynamic>> _myGroups = [];
+  List<Map<String, dynamic>> _browseGroups = [];
   bool _isLoading = true;
   bool _isBusy = false;
   String? _userRole;
+  String? _currentUserId;
   final _searchController = TextEditingController();
   String _searchQuery = '';
   _GroupSort _sort = _GroupSort.newest;
@@ -47,22 +52,45 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
 
   Future<void> _loadData() async {
     final profile = await ref.read(authServiceProvider).getProfile();
-    final groups = await ref.read(groupServiceProvider).getMyGroups();
+    final results = await Future.wait([
+      ref.read(groupServiceProvider).getMyGroups(),
+      ref.read(groupServiceProvider).getBrowseGroups(),
+    ]);
     if (!mounted) return;
     setState(() {
       _userRole = profile?['role'] as String?;
-      _groups = groups;
+      _currentUserId = profile?['id']?.toString();
+      _myGroups = results[0];
+      _browseGroups = results[1];
       _isLoading = false;
     });
   }
 
+  /// Ongoing expeditions the signed-in user belongs to, pinned at the top.
+  List<Map<String, dynamic>> get _ongoingGroups =>
+      _myGroups.where((g) => _statusOf(g) == 'ONGOING').toList();
+
+  /// Pending/completed expeditions to list. Prefers the browse endpoint, but
+  /// falls back to the user's own expeditions if that call is unavailable so
+  /// the page never silently appears empty.
+  List<Map<String, dynamic>> get _browseSource {
+    if (_browseGroups.isNotEmpty) return _browseGroups;
+    return _myGroups.where((g) {
+      final status = _statusOf(g);
+      return status == 'PENDING' || status == 'COMPLETED';
+    }).toList();
+  }
+
   List<Map<String, dynamic>> get _visibleGroups {
     final query = _searchQuery.trim().toLowerCase();
-    final groups = _groups.where((g) {
+    final groups = _browseSource.where((g) {
       if (query.isEmpty) return true;
       final name = (g['name'] ?? '').toString().toLowerCase();
       final description = (g['description'] ?? '').toString().toLowerCase();
-      return name.contains(query) || description.contains(query);
+      final guide = (g['guide_name'] ?? '').toString().toLowerCase();
+      return name.contains(query) ||
+          description.contains(query) ||
+          guide.contains(query);
     }).toList();
 
     groups.sort((a, b) {
@@ -84,12 +112,6 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
   DateTime _createdAt(Map<String, dynamic> group) =>
       DateTime.tryParse(group['created_at']?.toString() ?? '')?.toLocal() ??
       DateTime.fromMillisecondsSinceEpoch(0);
-
-  List<Map<String, dynamic>> get _activeGroups =>
-      _visibleGroups.where((g) => g['is_active'] != false).toList();
-
-  List<Map<String, dynamic>> get _inactiveGroups =>
-      _visibleGroups.where((g) => g['is_active'] == false).toList();
 
   void _showCreateGroupSheet() {
     final nameController = TextEditingController();
@@ -286,30 +308,53 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
     );
   }
 
-  Future<void> _toggleStatus(Map<String, dynamic> group, bool isActive) async {
+  Future<void> _changeStatus(Map<String, dynamic> group, String status) async {
     setState(() => _isBusy = true);
-    final updated = await ref
+    final result = await ref
         .read(groupServiceProvider)
-        .setGroupStatus(group['id'].toString(), isActive);
+        .setGroupStatus(group['id'].toString(), status);
     if (!mounted) return;
     setState(() => _isBusy = false);
-    if (updated != null) {
-      await _loadData();
-      if (mounted) {
-        showAppSnack(
-          context,
-          isActive
-              ? '${group['name']} is now active.'
-              : '${group['name']} was deactivated.',
-        );
-      }
-    } else if (mounted) {
-      showAppSnack(
-        context,
-        'Only the expedition guide can change its status.',
-        error: true,
-      );
+    switch (result) {
+      case GroupStatusUpdate.success:
+        await _loadData();
+        if (mounted) {
+          showAppSnack(
+            context,
+            status == 'ONGOING'
+                ? '${group['name']} started.'
+                : '${group['name']} completed.',
+          );
+        }
+        break;
+      case GroupStatusUpdate.ongoingExists:
+        if (mounted) _showOngoingConflictDialog();
+        break;
+      case GroupStatusUpdate.failed:
+        if (mounted) {
+          showAppSnack(context, 'Could not update status.', error: true);
+        }
     }
+  }
+
+  void _showOngoingConflictDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.hiking, size: 36),
+        title: const Text('Expedition already ongoing'),
+        content: const Text(
+          'Complete the ongoing expedition first.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showInviteCode(Map<String, dynamic> group) {
@@ -382,7 +427,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
         textInputAction: TextInputAction.search,
         onChanged: (value) => setState(() => _searchQuery = value),
         decoration: InputDecoration(
-          hintText: 'Search expeditions',
+          hintText: 'Search pending & completed expeditions',
           isDense: true,
           prefixIcon: const Icon(Icons.search),
           suffixIcon: _searchQuery.isEmpty
@@ -435,17 +480,13 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: _loadData,
-                    child: _groups.isEmpty
+                    child: (_myGroups.isEmpty && _browseGroups.isEmpty)
                         ? _EmptyState(isGuide: _isGuide)
-                        : _visibleGroups.isEmpty
-                            ? _NoResultsState(query: _searchQuery)
-                            : ListView(
-                                padding:
-                                    const EdgeInsets.fromLTRB(16, 8, 16, 96),
-                                children: _isGuide
-                                    ? _buildGuideList()
-                                    : _buildMemberList(),
-                              ),
+                        : ListView(
+                            padding:
+                                const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                            children: _buildList(),
+                          ),
                   ),
                 ),
               ],
@@ -458,69 +499,47 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
     );
   }
 
-  List<Widget> _buildGuideList() {
-    final active = _activeGroups;
-    final inactive = _inactiveGroups;
+  List<Widget> _buildList() {
+    final ongoing = _ongoingGroups;
+    final visible = _visibleGroups;
     return [
-      if (active.isNotEmpty) ...[
-        SectionHeader(title: 'Active expeditions', count: active.length),
-        for (final group in active)
+      if (ongoing.isNotEmpty) ...[
+        SectionHeader(title: 'Ongoing', count: ongoing.length),
+        for (final group in ongoing)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: _GroupCard(
               group: group,
-              isGuide: true,
+              isMember: true,
+              isOwnerGuide: _isGuide,
               busy: _isBusy,
               onTap: () => _openGroup(group),
-              onToggle: (value) => _toggleStatus(group, value),
+              onComplete: () => _changeStatus(group, 'COMPLETED'),
             ),
           ),
       ],
-      if (inactive.isNotEmpty) ...[
-        SectionHeader(title: 'Deactivated', count: inactive.length),
-        for (final group in inactive)
+      SectionHeader(
+        title: _isGuide ? 'My expeditions' : 'All expeditions',
+        count: visible.length,
+      ),
+      if (visible.isEmpty)
+        _NoResultsState(query: _searchQuery)
+      else
+        for (final group in visible)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: _GroupCard(
               group: group,
-              isGuide: true,
+              isMember: group['is_member'] == true,
+              isOwnerGuide: _isGuide && group['created_by'] == _currentUserId,
               busy: _isBusy,
-              onTap: () => _openGroup(group),
-              onToggle: (value) => _toggleStatus(group, value),
+              onTap: group['is_member'] == true
+                  ? () => _openGroup(group)
+                  : _showJoinSheet,
+              onStart: () => _changeStatus(group, 'ONGOING'),
+              onEdit: () => _openGroup(group),
             ),
           ),
-      ],
-    ];
-  }
-
-  List<Widget> _buildMemberList() {
-    final active = _activeGroups;
-    final inactive = _inactiveGroups;
-    return [
-      if (active.isNotEmpty) ...[
-        SectionHeader(title: 'My expeditions', count: active.length),
-        for (final group in active)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _GroupCard(
-              group: group,
-              isGuide: false,
-              onTap: () => _openGroup(group),
-            ),
-          ),
-      ],
-      if (inactive.isNotEmpty) ...[
-        SectionHeader(title: 'Deactivated', count: inactive.length),
-        for (final group in inactive)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _GroupCard(
-              group: group,
-              isGuide: false,
-              onTap: () => _openGroup(group),
-            ),
-          ),
-      ],
     ];
   }
 }
@@ -528,24 +547,33 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
 class _GroupCard extends StatelessWidget {
   const _GroupCard({
     required this.group,
-    required this.isGuide,
+    required this.isMember,
+    required this.isOwnerGuide,
     required this.onTap,
-    this.onToggle,
+    this.onStart,
+    this.onComplete,
+    this.onEdit,
     this.busy = false,
   });
 
   final Map<String, dynamic> group;
-  final bool isGuide;
+  final bool isMember;
+  final bool isOwnerGuide;
   final VoidCallback onTap;
-  final ValueChanged<bool>? onToggle;
+  final VoidCallback? onStart;
+  final VoidCallback? onComplete;
+  final VoidCallback? onEdit;
   final bool busy;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final active = group['is_active'] != false;
+    final status = _statusOf(group);
+    final ongoing = status == 'ONGOING';
+    final pending = status == 'PENDING';
     final code = group['invite_code']?.toString() ?? '';
     final description = group['description']?.toString() ?? '';
+    final guideName = group['guide_name']?.toString() ?? '';
 
     return Card(
       child: InkWell(
@@ -560,7 +588,8 @@ class _GroupCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   CircleAvatar(
-                    backgroundColor: scheme.primaryContainer,
+                    backgroundColor:
+                        scheme.primaryContainer.withValues(alpha: ongoing ? 1 : 0.5),
                     foregroundColor: scheme.onPrimaryContainer,
                     child: const Icon(Icons.terrain),
                   ),
@@ -588,70 +617,99 @@ class _GroupCard extends StatelessWidget {
                             ),
                           ),
                         ],
+                        if (guideName.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.person_outline,
+                                size: 13,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Guide: $guideName',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
                   const SizedBox(width: 8),
-                  StatusPill(active: active),
+                  StatusPill(status: status),
                 ],
               ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.vpn_key, size: 16, color: scheme.primary),
-                    const SizedBox(width: 8),
-                    Text(
-                      code,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 2,
+              if (isMember && code.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color:
+                        scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.vpn_key, size: 16, color: scheme.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        code,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 2,
+                        ),
                       ),
-                    ),
-                    const Spacer(),
-                    InkWell(
-                      onTap: () => copyWithFeedback(context, code),
-                      borderRadius: BorderRadius.circular(6),
-                      child: const Padding(
-                        padding: EdgeInsets.all(4),
-                        child: Icon(Icons.copy, size: 16),
+                      const Spacer(),
+                      InkWell(
+                        onTap: () => copyWithFeedback(context, code),
+                        borderRadius: BorderRadius.circular(6),
+                        child: const Padding(
+                          padding: EdgeInsets.all(4),
+                          child: Icon(Icons.copy, size: 16),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+              ],
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Icon(
-                    active ? Icons.groups : Icons.pause_circle_outline,
-                    size: 16,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    active
-                        ? 'Members can join with the code'
-                        : 'Joining is paused',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: scheme.onSurfaceVariant,
+                  Expanded(
+                    child: Text(
+                      _statusHint(status, isMember),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
-                  const Spacer(),
-                  if (isGuide && onToggle != null)
-                    Switch(
-                      value: active,
-                      onChanged: busy ? null : onToggle,
+                  if (isOwnerGuide && pending && onStart != null)
+                    FilledButton.icon(
+                      onPressed: busy ? null : onStart,
+                      icon: const Icon(Icons.play_arrow, size: 18),
+                      label: const Text('Start'),
+                    )
+                  else if (isOwnerGuide && ongoing && onComplete != null)
+                    FilledButton.tonalIcon(
+                      onPressed: busy ? null : onComplete,
+                      icon: const Icon(Icons.flag, size: 18),
+                      label: const Text('Complete'),
+                    )
+                  else if (isOwnerGuide && onEdit != null)
+                    TextButton.icon(
+                      onPressed: busy ? null : onEdit,
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('Manage'),
                     )
                   else
                     Icon(
@@ -666,6 +724,19 @@ class _GroupCard extends StatelessWidget {
       ),
     );
   }
+
+  String _statusHint(String status, bool isMember) {
+    switch (status) {
+      case 'ONGOING':
+        return isMember ? 'Expedition in progress' : 'Ongoing expedition';
+      case 'COMPLETED':
+        return isMember ? 'Expedition finished' : 'Completed expedition';
+      default:
+        return isMember
+            ? 'Ready to start'
+            : 'Join with the invite code from the guide';
+    }
+  }
 }
 
 class _NoResultsState extends StatelessWidget {
@@ -676,24 +747,28 @@ class _NoResultsState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return ListView(
+    return Padding(
       padding: const EdgeInsets.all(32),
-      children: [
-        const SizedBox(height: 48),
-        Icon(Icons.search_off, size: 56, color: scheme.outline),
-        const SizedBox(height: 16),
-        Text(
-          'No expeditions match "$query"',
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Try a different name or clear the search.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: scheme.onSurfaceVariant),
-        ),
-      ],
+      child: Column(
+        children: [
+          const SizedBox(height: 32),
+          Icon(Icons.search_off, size: 56, color: scheme.outline),
+          const SizedBox(height: 16),
+          Text(
+            query.isEmpty
+                ? 'No pending or completed expeditions'
+                : 'No expeditions match "$query"',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Try a different name or clear the search.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -713,7 +788,7 @@ class _EmptyState extends StatelessWidget {
         Icon(Icons.terrain, size: 72, color: scheme.outline),
         const SizedBox(height: 16),
         Text(
-          isGuide ? 'No expeditions yet' : 'You have not joined an expedition',
+          isGuide ? 'No expeditions yet' : 'No expeditions available',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.titleMedium,
         ),

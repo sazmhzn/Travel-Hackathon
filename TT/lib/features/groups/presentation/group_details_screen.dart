@@ -45,20 +45,195 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     });
   }
 
-  Future<void> _toggleStatus(bool isActive) async {
+  Future<void> _changeStatus(String status) async {
     setState(() => _isBusy = true);
-    final updated = await ref
+    final result = await ref
         .read(groupServiceProvider)
-        .setGroupStatus(widget.groupId, isActive);
+        .setGroupStatus(widget.groupId, status);
     if (!mounted) return;
     setState(() => _isBusy = false);
-    if (updated != null) {
+    switch (result) {
+      case GroupStatusUpdate.success:
+        await _load();
+        if (mounted) {
+          showAppSnack(
+            context,
+            status == 'ONGOING'
+                ? 'Expedition started.'
+                : 'Expedition completed.',
+          );
+        }
+        break;
+      case GroupStatusUpdate.ongoingExists:
+        if (mounted) _showOngoingConflictDialog();
+        break;
+      case GroupStatusUpdate.failed:
+        if (mounted) {
+          showAppSnack(context, 'Could not update status.', error: true);
+        }
+    }
+  }
+
+  void _showOngoingConflictDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.hiking, size: 36),
+        title: const Text('Expedition already ongoing'),
+        content: const Text(
+          'Complete the ongoing expedition first.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editExpedition() async {
+    final group = _details?['group'] as Map<String, dynamic>?;
+    if (group == null) return;
+    final nameController =
+        TextEditingController(text: group['name']?.toString() ?? '');
+    final descController =
+        TextEditingController(text: group['description']?.toString() ?? '');
+    final formKey = GlobalKey<FormState>();
+    bool submitting = false;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            4,
+            20,
+            MediaQuery.of(sheetContext).viewInsets.bottom + 24,
+          ),
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Edit expedition',
+                  style: Theme.of(sheetContext).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: nameController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Expedition name',
+                    prefixIcon: Icon(Icons.terrain),
+                  ),
+                  validator: (v) => (v == null || v.trim().length < 3)
+                      ? 'Use at least 3 characters'
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: descController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Description (optional)',
+                    prefixIcon: Icon(Icons.notes),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: submitting
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+                          setSheetState(() => submitting = true);
+                          final updated = await ref
+                              .read(groupServiceProvider)
+                              .updateGroup(
+                                widget.groupId,
+                                name: nameController.text.trim(),
+                                description: descController.text.trim(),
+                              );
+                          if (!mounted) return;
+                          setSheetState(() => submitting = false);
+                          if (updated != null) {
+                            if (sheetContext.mounted) {
+                              Navigator.pop(sheetContext);
+                            }
+                            await _load();
+                            if (!mounted) return;
+                            showAppSnack(context, 'Expedition updated.');
+                          } else if (sheetContext.mounted) {
+                            showAppSnack(
+                              sheetContext,
+                              'Could not update the expedition.',
+                              error: true,
+                            );
+                          }
+                        },
+                  icon: submitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save),
+                  label: Text(submitting ? 'Saving...' : 'Save changes'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    nameController.dispose();
+    descController.dispose();
+  }
+
+  Future<void> _confirmRemoveMember(Map<String, dynamic> member) async {
+    final name = member['name']?.toString() ?? 'this member';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.person_remove, size: 36),
+        title: const Text('Remove member?'),
+        content: Text(
+          'Remove $name from this expedition? They will lose access to the group.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _isBusy = true);
+    final error = await ref
+        .read(groupServiceProvider)
+        .removeMember(widget.groupId, member['user_id'].toString());
+    if (!mounted) return;
+    setState(() => _isBusy = false);
+    if (error == null) {
       await _load();
-      if (mounted) {
-        showAppSnack(context, isActive ? 'Expedition activated.' : 'Expedition deactivated.');
-      }
+      if (mounted) showAppSnack(context, '$name removed.');
     } else if (mounted) {
-      showAppSnack(context, 'Could not update status.', error: true);
+      showAppSnack(context, error, error: true);
     }
   }
 
@@ -101,7 +276,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
 
   Widget _headerCard() {
     final group = _details!['group'] as Map<String, dynamic>;
-    final active = group['is_active'] != false;
+    final status = (group['status'] ?? 'PENDING').toString().toUpperCase();
     final code = group['invite_code']?.toString() ?? '';
     final description = group['description']?.toString() ?? '';
     final scheme = Theme.of(context).colorScheme;
@@ -123,7 +298,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                     ),
                   ),
                 ),
-                StatusPill(active: active),
+                StatusPill(status: status),
               ],
             ),
             if (description.isNotEmpty) ...[
@@ -215,21 +390,58 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
   }
 
   Widget _guideControls() {
-    final active = (_details!['group'] as Map)['is_active'] != false;
+    final group = _details!['group'] as Map<String, dynamic>;
+    final status = (group['status'] ?? 'PENDING').toString().toUpperCase();
+    final pending = status == 'PENDING';
+    final ongoing = status == 'ONGOING';
+
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Card(
-        child: SwitchListTile(
-          value: active,
-          onChanged: _isBusy ? null : _toggleStatus,
-          secondary: Icon(
-            active ? Icons.play_circle_outline : Icons.pause_circle_outline,
-          ),
-          title: const Text('Expedition active'),
-          subtitle: Text(
-            active
-                ? 'Members can join with the invite code'
-                : 'Joining is paused until you reactivate',
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    ongoing ? Icons.play_circle : Icons.flag_circle_outlined,
+                    color: AppTheme.success,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      pending
+                          ? 'Ready to start this expedition'
+                          : ongoing
+                              ? 'This expedition is ongoing'
+                              : 'This expedition is completed',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (pending)
+                FilledButton.icon(
+                  onPressed: _isBusy ? null : () => _changeStatus('ONGOING'),
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Start expedition'),
+                )
+              else if (ongoing)
+                FilledButton.tonalIcon(
+                  onPressed: _isBusy ? null : () => _changeStatus('COMPLETED'),
+                  icon: const Icon(Icons.flag),
+                  label: const Text('Complete expedition'),
+                ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _isBusy ? null : _editExpedition,
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Edit expedition'),
+              ),
+            ],
           ),
         ),
       ),
@@ -246,7 +458,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
       for (final member in missing)
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
-          child: _MemberTile(member: member, isCurrentUser: _isCurrentUser),
+          child: _memberTile(member),
         ),
     ];
   }
@@ -269,9 +481,22 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
       for (final member in present)
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
-          child: _MemberTile(member: member, isCurrentUser: _isCurrentUser),
+          child: _memberTile(member),
         ),
     ];
+  }
+
+  Widget _memberTile(Map<String, dynamic> member) {
+    final isGuide = member['role'] == 'GUIDE';
+    final canRemove = _isCurrentUserGuide &&
+        !isGuide &&
+        member['user_id']?.toString() != _currentUserId;
+    return _MemberTile(
+      member: member,
+      isCurrentUser: _isCurrentUser,
+      canRemove: canRemove,
+      onRemove: canRemove ? () => _confirmRemoveMember(member) : null,
+    );
   }
 
   bool _isCurrentUser(Map<String, dynamic> member) =>
@@ -279,10 +504,17 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
 }
 
 class _MemberTile extends StatelessWidget {
-  const _MemberTile({required this.member, required this.isCurrentUser});
+  const _MemberTile({
+    required this.member,
+    required this.isCurrentUser,
+    this.canRemove = false,
+    this.onRemove,
+  });
 
   final Map<String, dynamic> member;
   final bool Function(Map<String, dynamic>) isCurrentUser;
+  final bool canRemove;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -389,6 +621,13 @@ class _MemberTile extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            if (canRemove && onRemove != null)
+              IconButton(
+                onPressed: onRemove,
+                tooltip: 'Remove member',
+                icon: const Icon(Icons.person_remove_outlined, size: 20),
+                color: AppTheme.danger,
               ),
           ],
         ),

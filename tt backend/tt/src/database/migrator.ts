@@ -7,6 +7,22 @@ import { logger } from '../utils/logger.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * Resolves the directory holding the .sql migration files. When running from
+ * `dist/`, the .sql files are copied next to the compiled migrator; when
+ * running from `src/` via tsx, they sit beside the source file.
+ */
+function resolveMigrationsDir(): string {
+  const candidates = [
+    path.join(__dirname, 'migrations'),
+    path.join(__dirname, '..', '..', 'src', 'database', 'migrations'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return candidates[0];
+}
+
 export async function runMigrations(): Promise<void> {
   const client = await pool.connect();
   try {
@@ -20,7 +36,7 @@ export async function runMigrations(): Promise<void> {
       );
     `);
 
-    const migrationsDir = path.join(__dirname, 'migrations');
+    const migrationsDir = resolveMigrationsDir();
     if (!fs.existsSync(migrationsDir)) {
       logger.warn(`Migrations directory not found at ${migrationsDir}`);
       return;

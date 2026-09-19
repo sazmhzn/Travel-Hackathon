@@ -82,6 +82,25 @@ export async function groupRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // 4b. Browse Expeditions (PENDING + COMPLETED, scoped by role)
+  fastify.get(
+    '/browse',
+    {
+      schema: {
+        description: 'Browse expeditions (pending and completed) for the current user',
+        tags: ['Groups'],
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const groups = await GroupsService.getBrowseGroups(
+        request.user.id,
+        request.user.role
+      );
+      return reply.send({ groups });
+    }
+  );
+
   // 4. Get Group Details (roster + live/missing breakdown)
   fastify.get(
     '/:groupId',
@@ -110,12 +129,12 @@ export async function groupRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // 5. Activate / Deactivate a Group (Guide only)
+  // 5. Change Expedition Status (Guide only)
   fastify.patch(
     '/:groupId/status',
     {
       schema: {
-        description: 'Activate or deactivate an expedition (guide only)',
+        description: 'Change an expedition lifecycle status (guide only)',
         tags: ['Groups'],
         security: [{ bearerAuth: [] }],
         params: {
@@ -127,9 +146,9 @@ export async function groupRoutes(fastify: FastifyInstance) {
         },
         body: {
           type: 'object',
-          required: ['isActive'],
+          required: ['status'],
           properties: {
-            isActive: { type: 'boolean' },
+            status: { type: 'string', enum: ['PENDING', 'ONGOING', 'COMPLETED'] },
           },
         },
       },
@@ -137,16 +156,59 @@ export async function groupRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const params = request.params as { groupId: string };
-        const body = request.body as { isActive: boolean };
+        const body = request.body as { status: 'PENDING' | 'ONGOING' | 'COMPLETED' };
         const group = await GroupsService.setGroupStatus(
           request.user.id,
           params.groupId,
-          body.isActive
+          body.status
         );
         return reply.send({ group });
       } catch (err: any) {
+        if (/complete the ongoing/i.test(err.message)) {
+          return reply.status(409).send({
+            error: 'OngoingExpeditionExists',
+            message: err.message,
+          });
+        }
         const status = /guide/i.test(err.message) ? 403 : 400;
         return reply.status(status).send({ error: 'GroupStatusFailed', message: err.message });
+      }
+    }
+  );
+
+  // 5b. Edit an Expedition (Guide only)
+  fastify.patch(
+    '/:groupId',
+    {
+      schema: {
+        description: 'Edit an expedition title and description (guide only)',
+        tags: ['Groups'],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['groupId'],
+          properties: {
+            groupId: { type: 'string' },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', minLength: 3 },
+            description: { type: 'string' },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const params = request.params as { groupId: string };
+        const body = request.body as { name?: string; description?: string };
+        const group = await GroupsService.updateGroup(request.user.id, params.groupId, body);
+        return reply.send({ group });
+      } catch (err: any) {
+        const status = /guide/i.test(err.message) ? 403 : 400;
+        return reply.status(status).send({ error: 'GroupUpdateFailed', message: err.message });
       }
     }
   );
@@ -172,6 +234,36 @@ export async function groupRoutes(fastify: FastifyInstance) {
       const params = request.params as { groupId: string };
       const members = await GroupsService.getGroupMembers(params.groupId);
       return reply.send({ members });
+    }
+  );
+
+  // 7. Remove a Member from an Expedition (Guide only)
+  fastify.delete(
+    '/:groupId/members/:userId',
+    {
+      schema: {
+        description: 'Remove a member from an expedition (guide only)',
+        tags: ['Groups'],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['groupId', 'userId'],
+          properties: {
+            groupId: { type: 'string' },
+            userId: { type: 'string' },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const params = request.params as { groupId: string; userId: string };
+        await GroupsService.removeMember(request.user.id, params.groupId, params.userId);
+        return reply.send({ message: 'Member removed' });
+      } catch (err: any) {
+        const status = /guide/i.test(err.message) ? 403 : 400;
+        return reply.status(status).send({ error: 'RemoveMemberFailed', message: err.message });
+      }
     }
   );
 }

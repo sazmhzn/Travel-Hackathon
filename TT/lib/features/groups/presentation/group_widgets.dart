@@ -2,16 +2,36 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/app_theme.dart';
 
-/// Small pill used to indicate whether an expedition is active or not.
+/// Small pill used to indicate an expedition's lifecycle status.
 class StatusPill extends StatelessWidget {
-  const StatusPill({super.key, required this.active, this.compact = false});
+  const StatusPill({super.key, required this.status, this.compact = false});
 
-  final bool active;
+  final String status;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppTheme.success : Theme.of(context).colorScheme.outline;
+    final scheme = Theme.of(context).colorScheme;
+    final Color color;
+    final IconData icon;
+    final String label;
+    switch (status) {
+      case 'ONGOING':
+        color = AppTheme.success;
+        icon = Icons.circle;
+        label = 'Ongoing';
+        break;
+      case 'COMPLETED':
+        color = scheme.primary;
+        icon = Icons.check_circle;
+        label = 'Completed';
+        break;
+      default:
+        color = scheme.outline;
+        icon = Icons.circle_outlined;
+        label = 'Pending';
+    }
+
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 8 : 10,
@@ -25,14 +45,10 @@ class StatusPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            active ? Icons.circle : Icons.pause_circle_outline,
-            size: compact ? 10 : 12,
-            color: color,
-          ),
+          Icon(icon, size: compact ? 10 : 12, color: color),
           const SizedBox(width: 5),
           Text(
-            active ? 'Active' : 'Deactivated',
+            label,
             style: TextStyle(
               color: color,
               fontSize: compact ? 11 : 12,

@@ -3,14 +3,18 @@ import { query } from '../../config/database.js';
 import { AuthService } from '../auth/auth.service.js';
 import { TelemetryService } from '../telemetry/telemetry.service.js';
 
+export type GroupStatus = 'PENDING' | 'ONGOING' | 'COMPLETED';
+
 export interface Group {
   id: string;
   name: string;
   description?: string;
   invite_code: string;
   created_by: string;
-  is_active?: boolean;
+  status?: GroupStatus;
   created_at?: string;
+  guide_name?: string;
+  is_member?: boolean;
 }
 
 export interface GroupMember {
@@ -77,7 +81,7 @@ export class GroupsService {
       const res = await query(
         `INSERT INTO groups (name, description, invite_code, created_by)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, name, description, invite_code, created_by, is_active, created_at`,
+         RETURNING id, name, description, invite_code, created_by, status, created_at`,
         [data.name, data.description || null, inviteCode, data.createdBy]
       );
       const group = res.rows[0];
@@ -99,7 +103,7 @@ export class GroupsService {
           description: data.description,
           invite_code: inviteCode,
           created_by: data.createdBy,
-          is_active: true,
+          status: 'PENDING',
         };
         inMemoryGroups.set(group.id, group);
         inMemoryGroupMembers.set(group.id, [
@@ -220,8 +224,8 @@ export class GroupsService {
       }
       const group: Group = groupRes.rows[0];
 
-      if (group.is_active === false) {
-        throw new Error('This expedition is currently deactivated');
+      if (group.status === 'COMPLETED') {
+        throw new Error('This expedition is completed');
       }
 
       // Check if already a member
@@ -249,8 +253,8 @@ export class GroupsService {
           }
         }
         if (!matched) throw new Error('Invalid invite code');
-        if (matched.is_active === false) {
-          throw new Error('This expedition is currently deactivated');
+        if (matched.status === 'COMPLETED') {
+          throw new Error('This expedition is completed');
         }
         const members = inMemoryGroupMembers.get(matched.id) || [];
         if (!members.some((m) => m.user_id === userId)) {
@@ -295,24 +299,30 @@ export class GroupsService {
   }
 
   /**
-   * Activates or deactivates an expedition. Only the owning guide may toggle it.
+   * Changes an expedition's lifecycle status. Only the owning guide may do so.
+   * A guide can only have one ONGOING expedition: starting a new one while
+   * another is still ongoing is rejected.
    */
   static async setGroupStatus(
     userId: string,
     groupId: string,
-    isActive: boolean
+    status: GroupStatus
   ): Promise<Group> {
     const isGuide = await this.isUserGuideInGroup(userId, groupId);
     if (!isGuide) {
       throw new Error('Only the expedition guide can change its status');
     }
 
+    if (status === 'ONGOING') {
+      await this.assertNoOtherOngoing(userId, groupId);
+    }
+
     try {
       const res = await query(
-        `UPDATE groups SET is_active = $2, updated_at = CURRENT_TIMESTAMP
+        `UPDATE groups SET status = $2, updated_at = CURRENT_TIMESTAMP
          WHERE id = $1
-         RETURNING id, name, description, invite_code, created_by, is_active, created_at`,
-        [groupId, isActive]
+         RETURNING id, name, description, invite_code, created_by, status, created_at`,
+        [groupId, status]
       );
       if (res.rowCount === 0) {
         throw new Error('Group not found');
@@ -322,9 +332,89 @@ export class GroupsService {
       if (!isDatabaseOffline(err)) throw err;
       const group = inMemoryGroups.get(groupId);
       if (!group) throw new Error('Group not found');
-      group.is_active = isActive;
+      group.status = status;
       return group;
     }
+  }
+
+  /**
+   * Throws when the guide already has a different ONGOING expedition.
+   */
+  private static async assertNoOtherOngoing(userId: string, groupId: string): Promise<void> {
+    try {
+      const res = await query(
+        `SELECT 1 FROM groups
+         WHERE created_by = $1 AND status = 'ONGOING' AND id <> $2`,
+        [userId, groupId]
+      );
+      if ((res.rowCount ?? 0) > 0) {
+        throw new Error('Complete the ongoing expedition first');
+      }
+    } catch (err: any) {
+      if (err?.message === 'Complete the ongoing expedition first') throw err;
+      if (!isDatabaseOffline(err)) throw err;
+      const conflict = [...inMemoryGroups.values()].some(
+        (g) => g.created_by === userId && g.status === 'ONGOING' && g.id !== groupId
+      );
+      if (conflict) {
+        throw new Error('Complete the ongoing expedition first');
+      }
+    }
+  }
+
+  /**
+   * Expeditions members can browse: PENDING and COMPLETED only, never ONGOING.
+   * Guides see their own expeditions; members see every guide's expeditions.
+   * The invite code is only exposed to users who already belong to the group.
+   */
+  static async getBrowseGroups(
+    userId: string,
+    role?: 'GUIDE' | 'MEMBER' | 'ADMIN'
+  ): Promise<Group[]> {
+    try {
+      const scopeClause =
+        role === 'GUIDE' ? 'g.created_by = $1' : "TRUE";
+      const res = await query(
+        `SELECT g.*, u.name AS guide_name,
+                EXISTS (
+                  SELECT 1 FROM group_members gm
+                  WHERE gm.group_id = g.id AND gm.user_id = $1
+                ) AS is_member
+         FROM groups g
+         JOIN users u ON g.created_by = u.id
+         WHERE g.status IN ('PENDING', 'COMPLETED') AND ${scopeClause}
+         ORDER BY g.created_at ASC`,
+        [userId]
+      );
+      return res.rows.map((row: any) => this.maskInviteCode(row));
+    } catch (err: any) {
+      if (!isDatabaseOffline(err)) throw err;
+      const browse = [...inMemoryGroups.values()].filter((g) => {
+        if (g.status !== 'PENDING' && g.status !== 'COMPLETED') return false;
+        return role === 'GUIDE' ? g.created_by === userId : true;
+      });
+      const results: Group[] = [];
+      for (const g of browse) {
+        const members = inMemoryGroupMembers.get(g.id) || [];
+        const guide = await AuthService.getUserById(g.created_by);
+        results.push(
+          this.maskInviteCode({
+            ...g,
+            guide_name: guide?.name,
+            is_member: members.some((m) => m.user_id === userId),
+          })
+        );
+      }
+      return results;
+    }
+  }
+
+  /**
+   * Hides the invite code from users who are not members of the expedition.
+   */
+  private static maskInviteCode(group: Group): Group {
+    if (group.is_member) return group;
+    return { ...group, invite_code: '' };
   }
 
   /**
@@ -426,6 +516,75 @@ export class GroupsService {
     } catch (err: any) {
       const members = inMemoryGroupMembers.get(groupId) || [];
       return members.some((m) => m.user_id === userId && m.role === 'GUIDE');
+    }
+  }
+
+  /**
+   * Updates an expedition's title and description. Only the owning guide may.
+   */
+  static async updateGroup(
+    userId: string,
+    groupId: string,
+    data: { name?: string; description?: string }
+  ): Promise<Group> {
+    if (!(await this.isUserGuideInGroup(userId, groupId))) {
+      throw new Error('Only the expedition guide can edit it');
+    }
+
+    try {
+      const res = await query(
+        `UPDATE groups
+         SET name = COALESCE($2, name),
+             description = COALESCE($3, description),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING id, name, description, invite_code, created_by, status, created_at`,
+        [groupId, data.name ?? null, data.description ?? null]
+      );
+      if (res.rowCount === 0) throw new Error('Group not found');
+      return res.rows[0];
+    } catch (err: any) {
+      if (!isDatabaseOffline(err)) throw err;
+      const group = inMemoryGroups.get(groupId);
+      if (!group) throw new Error('Group not found');
+      if (data.name !== undefined) group.name = data.name;
+      if (data.description !== undefined) group.description = data.description;
+      return group;
+    }
+  }
+
+  /**
+   * Removes a member from an expedition. Only the owning guide may, and guides
+   * cannot remove themselves or other guides.
+   */
+  static async removeMember(
+    userId: string,
+    groupId: string,
+    memberUserId: string
+  ): Promise<void> {
+    if (!(await this.isUserGuideInGroup(userId, groupId))) {
+      throw new Error('Only the expedition guide can remove members');
+    }
+
+    const members = await this.getGroupMembers(groupId);
+    const target = members.find((m) => m.user_id === memberUserId);
+    if (!target) throw new Error('This person is not a member of the expedition');
+    if (target.role === 'GUIDE') {
+      throw new Error('Guides cannot be removed from the expedition');
+    }
+
+    try {
+      await query(
+        `DELETE FROM group_members WHERE group_id = $1 AND user_id = $2`,
+        [groupId, memberUserId]
+      );
+    } catch (err: any) {
+      if (!isDatabaseOffline(err)) throw err;
+      const list = inMemoryGroupMembers.get(groupId) || [];
+      inMemoryGroupMembers.set(
+        groupId,
+        list.filter((m) => m.user_id !== memberUserId)
+      );
     }
   }
 
