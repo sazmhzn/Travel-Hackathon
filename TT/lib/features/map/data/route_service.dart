@@ -9,11 +9,13 @@ class RouteService {
   final Ref _ref;
   RouteService(this._ref);
 
-  Future<Map<String, dynamic>> getGeoJsonRoute() async {
+  Future<Map<String, dynamic>?> getGeoJsonRoute() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final groupId = prefs.getString('active_group_id');
-      if (groupId == null) return _getMockGeoJson();
+      
+      // If no group is selected, do not return mock data automatically.
+      if (groupId == null) return null;
 
       final client = _ref.read(apiClientProvider).client;
       final response = await client.get('/plans/group/$groupId');
@@ -25,7 +27,21 @@ class RouteService {
     } catch (e) {
       print('Error fetching real route: $e');
     }
-    return _getMockGeoJson();
+    return null;
+  }
+
+  /// Converts a GeoJSON Map to a List of LatLng for math operations
+  static List<LatLng> extractPoints(Map<String, dynamic>? geoJson) {
+    if (geoJson == null) return [];
+    try {
+      final features = geoJson['features'] as List;
+      if (features.isEmpty) return [];
+      final geometry = features[0]['geometry'];
+      final coords = geometry['coordinates'] as List;
+      return coords.map((c) => LatLng(c[1] as double, c[0] as double)).toList();
+    } catch (e) {
+      return [];
+    }
   }
 
   Map<String, dynamic> _getMockGeoJson() {

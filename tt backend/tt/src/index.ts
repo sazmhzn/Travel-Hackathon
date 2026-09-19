@@ -6,6 +6,7 @@ import { runMigrations } from './database/migrator.js';
 import { initializeRedis } from './config/redis.js';
 import { ensureBucketExists } from './config/minio.js';
 import { initializeSocketIO } from './sockets/gateway.js';
+import { startDestinationWorker, stopDestinationWorker } from './modules/destination-agent/workers/destination-generation.worker.js';
 
 async function startServer() {
   try {
@@ -30,6 +31,16 @@ async function startServer() {
     // 3. MinIO S3 Bucket Check
     await ensureBucketExists();
 
+    // 4. Start Destination Agent Worker (if enabled)
+    if (env.DESTINATION_AGENT_ENABLED) {
+      try {
+        startDestinationWorker();
+        logger.info('Destination agent worker started');
+      } catch (err) {
+        logger.warn({ err }, 'Failed to start destination worker (will retry on first job)');
+      }
+    }
+
     // 4. Build Fastify App
     const app = await buildApp();
 
@@ -41,6 +52,17 @@ async function startServer() {
     logger.info(`🚀 Server listening at http://${env.HOST}:${env.PORT}`);
     logger.info(`📖 Swagger documentation available at http://${env.HOST}:${env.PORT}/docs`);
     logger.info(`⚡ Socket.io real-time broker active on ws://${env.HOST}:${env.PORT}`);
+    logger.info('🗺️  Destination agent ready at /api/destinations');
+
+    // Graceful shutdown
+    const shutdown = async () => {
+      logger.info('Shutting down gracefully...');
+      await stopDestinationWorker();
+      await app.close();
+      process.exit(0);
+    };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
   } catch (err) {
     logger.error({ err }, 'Failed to start server');
     process.exit(1);

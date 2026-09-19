@@ -20,14 +20,20 @@ class LocationTrackingService {
 
   Future<void> startTracking() async {
     try {
+      // Start listening BEFORE invoking the method to ensure no initial updates are missed
+      _startListeningToUpdates();
+
       final bool started = await _methodChannel.invokeMethod('startTracking');
       if (started) {
-        _startListeningToUpdates();
+        print("Native location tracking service started successfully.");
         // Also connect to Socket.IO when tracking starts
         await _ref.read(socketServiceProvider).connect();
+      } else {
+        _stopListeningToUpdates();
       }
     } on PlatformException catch (e) {
       print("Failed to start tracking: '${e.message}'.");
+      _stopListeningToUpdates();
     }
   }
 
@@ -41,13 +47,17 @@ class LocationTrackingService {
   }
 
   void _startListeningToUpdates() {
+    if (_locationSubscription != null) return;
+
+    print("Subscribing to native location update stream...");
     _locationSubscription = _eventChannel.receiveBroadcastStream().listen((dynamic event) async {
       final locationData = Map<String, dynamic>.from(event);
+      print("Received location from native: Lat: ${locationData['latitude']}, Lng: ${locationData['longitude']}, Acc: ${locationData['accuracy']}");
       _locationStreamController.add(locationData);
 
       // Emit to WebSocket
       final prefs = await SharedPreferences.getInstance();
-      final groupId = prefs.getString('destination_name') ?? 'group123'; // Mock group id fallback
+      final groupId = prefs.getString('active_group_id') ?? 'group123'; 
 
       _ref.read(socketServiceProvider).emitLocationUpdate(
         groupId,

@@ -66,6 +66,11 @@ export function initializeSocketIO(httpServer: HttpServer): SocketIOServer {
     const user = socket.data.user;
     logger.info({ socketId: socket.id, userId: user?.id }, 'WebSocket client connected');
 
+    // Join personal user room for notifications (destination agent, etc.)
+    if (user?.id) {
+      socket.join(`user:${user.id}`);
+    }
+
     // 1. Join Travel Group Room
     socket.on('join_group', ({ groupId }: { groupId: string }) => {
       if (!groupId) return;
@@ -146,5 +151,11 @@ export function initializeSocketIO(httpServer: HttpServer): SocketIOServer {
 export function broadcastToGroup(groupId: string, event: string, payload: any): void {
   if (io) {
     io.to(`group:${groupId}`).emit(event, payload);
+  }
+}
+
+export function broadcastToUser(userId: string, event: string, payload: any): void {
+  if (io) {
+    io.to(`user:${userId}`).emit(event, payload);
   }
 }

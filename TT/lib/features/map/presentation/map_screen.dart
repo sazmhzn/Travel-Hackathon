@@ -12,6 +12,8 @@ import '../data/off_path_calculator.dart';
 import '../../emergency/data/emergency_service.dart';
 import '../../social/data/deep_link_service.dart';
 import '../../../core/socket_service.dart';
+import '../../auth/data/auth_service.dart';
+import '../../routes/data/route_recording_service.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -29,6 +31,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _isOffPath = false;
   bool _hasCenteredOnUser = false;
   Circle? _userLocationCircle;
+  String? _userRole;
+  bool _isRecording = false;
+  LatLng? _currentLocation;
+  Circle? _startMarkerCircle;
+  List<LatLng> _activeRoutePoints = [];
 
   @override
   void initState() {
@@ -147,31 +154,52 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   void _setupLocationListener() {
+    print("Setting up UI location listener...");
     ref.read(locationTrackingServiceProvider).locationStream.listen((locationData) {
       final lat = locationData['latitude'] as double;
       final lng = locationData['longitude'] as double;
       final currentLoc = LatLng(lat, lng);
       
+      setState(() {
+        _currentLocation = currentLoc;
+      });
+
+      print("UI received location update: $lat, $lng");
+
       // Auto-center camera on first GPS fix
       if (!_hasCenteredOnUser && mapController != null) {
+        print("Centering camera on user: $currentLoc");
         mapController!.animateCamera(CameraUpdate.newLatLngZoom(currentLoc, 15.0));
         _hasCenteredOnUser = true;
       }
       
-      // Check off-path
-      final route = ref.read(routeServiceProvider).getMockRoute();
-      final result = OffPathCalculator.checkOffPath(currentLoc, route, 50.0);
-      
-      if (result != null) {
-        if (result.isOffPath != _isOffPath) {
-            setState(() {
-                _isOffPath = result.isOffPath;
-            });
+      // Update breadcrumb if recording
+      if (_isRecording) {
+        _updateRecordingPath();
+      }
+
+      // Check off-path (Only if NOT recording and an active route exists)
+      if (!_isRecording && _activeRoutePoints.isNotEmpty) {
+        final result = OffPathCalculator.checkOffPath(currentLoc, _activeRoutePoints, 50.0);
+        
+        if (result != null) {
+          if (result.isOffPath != _isOffPath) {
+              setState(() {
+                  _isOffPath = result.isOffPath;
+              });
+          }
+          _updateUserMarker(currentLoc, result.isOffPath);
+          _drawReturnPath(currentLoc, result.nearestPointOnRoute, result.isOffPath);
+        } else {
+          _updateUserMarker(currentLoc, false);
         }
-        _updateUserMarker(currentLoc, result.isOffPath);
-        _drawReturnPath(currentLoc, result.nearestPointOnRoute, result.isOffPath);
       } else {
+        // In recording mode or fresh map: skip off-path alerts and ensure return path is hidden
+        if (_isOffPath) {
+          setState(() => _isOffPath = false);
+        }
         _updateUserMarker(currentLoc, false);
+        _drawReturnPath(currentLoc, currentLoc, false);
       }
 
     });
@@ -180,7 +208,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Future<void> _updateUserMarker(LatLng loc, bool isOffPath) async {
     if (mapController == null) return;
     
-    final circleColor = isOffPath ? '#FF0000' : '#0000FF'; // Red if off path, Blue if on path
+    String circleColor = isOffPath ? '#FF0000' : '#0000FF'; // Red if off path, Blue if on path
+    if (_isRecording) {
+      circleColor = '#00FF00'; // Green while recording
+    }
 
     if (_userLocationCircle == null) {
       _userLocationCircle = await mapController!.addCircle(
@@ -235,10 +266,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       // Request permissions first
       Map<Permission, PermissionStatus> statuses = await [
         Permission.location,
+        Permission.locationAlways, // Added for background service
         Permission.notification,
       ].request();
 
-      if (statuses[Permission.location]!.isGranted) {
+      if (statuses[Permission.location]!.isGranted || statuses[Permission.locationAlways]!.isGranted) {
         await ref.read(locationTrackingServiceProvider).startTracking();
         setState(() { _isTracking = true; });
       }
@@ -260,6 +292,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     if (_regionName != null) {
       _isDownloaded = await ref.read(offlineMapServiceProvider).isMapDownloaded(_regionName!);
     }
+    
+    final profile = await ref.read(authServiceProvider).getProfile();
+    _userRole = profile?['user']?['role'] ?? profile?['role']; // Handle different response shapes
+
     setState(() {});
   }
 
@@ -288,6 +324,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ),
       );
 
+      await mapController!.addGeoJsonSource("recording-source", emptyGeoJson);
+      await mapController!.addLineLayer(
+        "recording-source",
+        "recording-layer",
+        LineLayerProperties(
+          lineColor: "#0000FF", // Blue for the path being recorded
+          lineWidth: 4.0,
+          lineJoin: "round",
+          lineCap: "round",
+          lineDasharray: [2.0, 2.0],
+        ),
+      );
+
       await mapController!.addGeoJsonSource("return-path-source", emptyGeoJson);
       await mapController!.addLineLayer(
         "return-path-source",
@@ -309,8 +358,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Future<void> _renderRoute() async {
     if (mapController == null) return;
     final geoJson = await ref.read(routeServiceProvider).getGeoJsonRoute();
+    
+    // Track points for off-path calculation
+    _activeRoutePoints = RouteService.extractPoints(geoJson);
+
     try {
-      await mapController!.setGeoJsonSource("route-source", geoJson);
+      final data = geoJson ?? {"type": "FeatureCollection", "features": []};
+      await mapController!.setGeoJsonSource("route-source", data);
     } catch (e) {
       print("Error rendering route: $e");
     }
@@ -349,6 +403,71 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
+  Future<void> _updateRecordingPath() async {
+    if (mapController == null) return;
+    
+    final points = await ref.read(routeRecordingServiceProvider).getActiveRoutePoints();
+
+    if (points.isEmpty) return;
+
+    final geoJson = {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "properties": {},
+          "geometry": {
+            "type": "LineString",
+            "coordinates": points.map((p) => [p.longitude, p.latitude]).toList(),
+          }
+        }
+      ]
+    };
+
+    await mapController!.setGeoJsonSource("recording-source", geoJson);
+  }
+
+  void _showStopRecordingDialog() {
+    final titleController = TextEditingController();
+    final descController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Save Recorded Path'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: titleController, decoration: const InputDecoration(labelText: 'Trail Name')),
+            TextField(controller: descController, decoration: const InputDecoration(labelText: 'Description')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              await ref.read(routeRecordingServiceProvider).stopRecording(
+                title: titleController.text,
+                description: descController.text,
+              );
+
+              // Also stop the underlying location tracking service to save battery
+              if (_isTracking) {
+                await _toggleTracking();
+              }
+
+              setState(() {
+                _isRecording = false;
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Path saved and syncing...')));
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -421,6 +540,58 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             backgroundColor: Colors.orange,
             child: const Icon(Icons.warning),
           ),
+          const SizedBox(height: 16),
+          if (_userRole == 'GUIDE')
+            FloatingActionButton(
+              heroTag: 'recordBtn',
+              onPressed: () async {
+                if (_isRecording) {
+                  _showStopRecordingDialog();
+                  if (_startMarkerCircle != null) {
+                    await mapController!.removeCircle(_startMarkerCircle!);
+                    _startMarkerCircle = null;
+                  }
+                } else {
+                  // Ensure tracking is ON
+                  if (!_isTracking) {
+                    await _toggleTracking();
+                  }
+                  
+                  // Start recording with current location if available
+                  await ref.read(routeRecordingServiceProvider).startRecording(
+                    initialLat: _currentLocation?.latitude,
+                    initialLng: _currentLocation?.longitude,
+                  );
+
+                  // Add a "Start" marker at current position
+                  if (_currentLocation != null && mapController != null) {
+                    _startMarkerCircle = await mapController!.addCircle(
+                      CircleOptions(
+                        geometry: _currentLocation!,
+                        circleRadius: 6.0,
+                        circleColor: '#FFFF00', // Yellow start point
+                        circleStrokeWidth: 2.0,
+                        circleStrokeColor: '#000000',
+                      )
+                    );
+                  }
+
+                  setState(() {
+                    _isRecording = true;
+                    _isOffPath = false; // Reset off-path state
+                  });
+                  
+                  // Explicitly hide return path if it was showing
+                  if (mapController != null) {
+                    await mapController!.setLayerVisibility("return-path-layer", false);
+                  }
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Started recording trail...')));
+                }
+              },
+              backgroundColor: _isRecording ? Colors.green : Colors.grey,
+              child: Icon(_isRecording ? Icons.save : Icons.fiber_manual_record),
+            ),
           const SizedBox(height: 16),
           FloatingActionButton(
             heroTag: 'trackBtn',

@@ -49,6 +49,12 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_EMERGENCY_CHAT_ID: z.string().optional(),
   FIREBASE_SERVICE_ACCOUNT_KEY: z.string().optional(),
+
+  // Destination Agent
+  DESTINATION_AGENT_ENABLED: z.coerce.boolean().default(true),
+  GOOGLE_GEMINI_API_KEY: z.string().optional(),
+  GOOGLE_PLACES_API_KEY: z.string().optional(),
+  GOOGLE_ROUTES_API_KEY: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);
