@@ -21,7 +21,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // CORS
   await app.register(cors, {
     origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
   // JWT
