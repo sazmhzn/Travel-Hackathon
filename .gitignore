@@ -4,3 +4,14 @@ dist/
 *.log
 coverage/
 .DS_Store
+
+# Flutter/Dart build artifacts
+**/build/
+.dart_tool/
+.flutter-plugins-dependencies
+.idea/
+*.iml
+pubspec.lock
+android/.gradle/
+ios/Pods/
+ios/.symlinks/
