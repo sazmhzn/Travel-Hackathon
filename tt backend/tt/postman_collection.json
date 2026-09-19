@@ -1,0 +1,647 @@
+{
+  "info": {
+    "_postman_id": "travel-emergency-backend-v1",
+    "name": "Travel & Emergency App Backend API",
+    "description": "Comprehensive Postman collection for the Travel & Emergency App backend with PostGIS spatial endpoints, Redis telemetry, Good Samaritan mesh relay, MinIO S3 storage, and emergency rescue triggers.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Register Guide",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var json = pm.response.json();",
+                  "    if (json.token) {",
+                  "        pm.environment.set('jwt_token', json.token);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"guide@himalayas.org\",\n  \"password\": \"SherpaGuide2026!\",\n  \"name\": \"Tenzing Guide\",\n  \"phone\": \"+9779812345678\",\n  \"role\": \"GUIDE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Register Member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var json = pm.response.json();",
+                  "    if (json.token) {",
+                  "        pm.environment.set('jwt_token', json.token);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"hiker@outdoors.com\",\n  \"password\": \"HikerPassword2026!\",\n  \"name\": \"Alex Hiker\",\n  \"phone\": \"+14155552671\",\n  \"role\": \"MEMBER\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var json = pm.response.json();",
+                  "    if (json.token) {",
+                  "        pm.environment.set('jwt_token', json.token);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"guide@himalayas.org\",\n  \"password\": \"SherpaGuide2026!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Get Profile (Me)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "me"]
+            }
+          }
+        },
+        {
+          "name": "Update FCM Device Token",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"fcm_device_token_xyz987654321\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/fcm-token",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "fcm-token"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Groups",
+      "item": [
+        {
+          "name": "Create Group (Guide)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var json = pm.response.json();",
+                  "    if (json.group && json.group.id) {",
+                  "        pm.environment.set('groupId', json.group.id);",
+                  "    }",
+                  "    if (json.group && json.group.invite_code) {",
+                  "        pm.environment.set('inviteCode', json.group.invite_code);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Everest Base Camp Expedition\",\n  \"description\": \"14-day high altitude trek through Khumbu valley\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/groups",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "groups"]
+            }
+          }
+        },
+        {
+          "name": "Join Group by Invite Code",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"inviteCode\": \"{{inviteCode}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/groups/join",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "groups", "join"]
+            }
+          }
+        },
+        {
+          "name": "Get My Groups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/groups/my-groups",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "groups", "my-groups"]
+            }
+          }
+        },
+        {
+          "name": "Get Group Members",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/groups/{{groupId}}/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "groups", "{{groupId}}", "members"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Travel Plans",
+      "item": [
+        {
+          "name": "Create Plan (GeoJSON LineString)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var json = pm.response.json();",
+                  "    if (json.plan && json.plan.id) {",
+                  "        pm.environment.set('planId', json.plan.id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"{{groupId}}\",\n  \"title\": \"Namche Bazaar to Tengboche Stage\",\n  \"description\": \"Scenic alpine trail crossing suspension bridges and ascending to Tengboche Monastery\",\n  \"geoJsonPayload\": {\n    \"type\": \"LineString\",\n    \"coordinates\": [\n      [86.7114, 27.8069, 3440],\n      [86.7200, 27.8150, 3600],\n      [86.7450, 27.8300, 3750],\n      [86.7640, 27.8358, 3867]\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/plans",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "plans"]
+            }
+          }
+        },
+        {
+          "name": "Get Plan by ID",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/plans/{{planId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "plans", "{{planId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Plans for Group",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/plans/group/{{groupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "plans", "group", "{{groupId}}"]
+            }
+          }
+        },
+        {
+          "name": "Map Data Bounding Box (ST_MakeEnvelope)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/plans/map-data?minLat=27.70&minLng=86.60&maxLat=28.05&maxLng=87.00",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "plans", "map-data"],
+              "query": [
+                { "key": "minLat", "value": "27.70" },
+                { "key": "minLng", "value": "86.60" },
+                { "key": "maxLat", "value": "28.05" },
+                { "key": "maxLng", "value": "87.00" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Real-Time Telemetry & Mesh Relay",
+      "item": [
+        {
+          "name": "Send Live GPS Telemetry Ping",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"{{groupId}}\",\n  \"lat\": 27.8358,\n  \"lng\": 86.7640,\n  \"altitude\": 3867,\n  \"speed\": 1.4,\n  \"battery\": 84,\n  \"timestamp\": \"2026-09-17T14:30:00.000Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/telemetry/location",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "telemetry", "location"]
+            }
+          }
+        },
+        {
+          "name": "Get Group Live Locations (Redis Cache)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/telemetry/group/{{groupId}}/live",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "telemetry", "group", "{{groupId}}", "live"]
+            }
+          }
+        },
+        {
+          "name": "Good Samaritan Mesh Relay Sync",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"records\": [\n    {\n      \"userId\": \"USER_ID_OF_LOST_HIKER\",\n      \"groupId\": \"{{groupId}}\",\n      \"lat\": 27.8450,\n      \"lng\": 86.7720,\n      \"altitude\": 4010,\n      \"speed\": 0.2,\n      \"battery\": 19,\n      \"recordedAt\": \"2026-09-17T13:45:00.000Z\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/telemetry/mesh-sync",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "telemetry", "mesh-sync"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Emergency Triggers",
+      "item": [
+        {
+          "name": "Trigger Rescue Mode (SOS)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"{{groupId}}\",\n  \"lat\": 27.8480,\n  \"lng\": 86.7750,\n  \"battery\": 11,\n  \"reason\": \"Acute mountain sickness (AMS), unable to walk down\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/emergency/trigger",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "emergency", "trigger"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Social Discovery Feed",
+      "item": [
+        {
+          "name": "Discover Nearby Feed (ST_DWithin)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/feed?lat=27.8069&lng=86.7114&radius=25000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "feed"],
+              "query": [
+                { "key": "lat", "value": "27.8069" },
+                { "key": "lng", "value": "86.7114" },
+                { "key": "radius", "value": "25000", "description": "Radius in meters (25km)" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Activity / Media Marker Pin",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Suspension Bridge Panorama Point\",\n  \"description\": \"Great view of Ama Dablam peak before the steep climb\",\n  \"groupId\": \"{{groupId}}\",\n  \"visibility\": \"PUBLIC\",\n  \"lat\": 27.8200,\n  \"lng\": 86.7300,\n  \"mediaUrls\": [\n    \"http://localhost:9000/travel-media/uploads/ama_dablam_view.jpg\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/feed/activities",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "feed", "activities"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Cloud Storage (MinIO S3)",
+      "item": [
+        {
+          "name": "Generate Pre-signed Upload URL",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fileName\": \"himalayan_summit.jpg\",\n  \"contentType\": \"image/jpeg\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/storage/presigned-upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "storage", "presigned-upload"]
+            }
+          }
+        },
+        {
+          "name": "Generate Pre-signed Download URL",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/storage/presigned-download?fileKey=uploads/sample_image.jpg",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "storage", "presigned-download"],
+              "query": [
+                { "key": "fileKey", "value": "uploads/sample_image.jpg" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. WebSockets & Socket.io Real-Time Gateway",
+      "description": "Bi-directional real-time communication gateway powered by Socket.io and Redis Adapter for GPS telemetry, room coordination, and emergency rescue broadcasts.\n\nConnect: ws://localhost:3000 or http://localhost:3000/socket.io/?EIO=4&transport=websocket\nAuth: Header `Authorization: Bearer <jwt_token>` or query `{ auth: { token } }`",
+      "item": [
+        {
+          "name": "WS Handshake & Connection (Bearer Token Auth)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{wsUrl}}/socket.io/?EIO=4&transport=websocket&token={{jwt_token}}",
+              "host": ["{{wsUrl}}"],
+              "path": ["socket.io", ""],
+              "query": [
+                { "key": "EIO", "value": "4", "description": "Engine.IO Protocol Version 4" },
+                { "key": "transport", "value": "websocket", "description": "Upgrade transport protocol" },
+                { "key": "token", "value": "{{jwt_token}}", "description": "JWT Auth Token" }
+              ]
+            },
+            "description": "Establish persistent WebSocket connection with Socket.io server. The server verifies JWT token upon handshake."
+          }
+        },
+        {
+          "name": "WS Client Emit: join_group",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"join_group\",\n  \"data\": {\n    \"groupId\": \"{{groupId}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{wsUrl}}/socket.io/?EIO=4&transport=websocket",
+              "host": ["{{wsUrl}}"],
+              "path": ["socket.io", ""]
+            },
+            "description": "Client emits `join_group` to join the Socket.io room `group:{groupId}`. Other room members receive `member:joined`."
+          }
+        },
+        {
+          "name": "WS Client Emit: location:update (Live GPS Telemetry)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"location:update\",\n  \"data\": {\n    \"groupId\": \"{{groupId}}\",\n    \"lat\": 27.7172,\n    \"lng\": 85.3240,\n    \"altitude\": 1450.5,\n    \"speed\": 1.25,\n    \"battery\": 88,\n    \"timestamp\": \"2026-09-17T16:00:00.000Z\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{wsUrl}}/socket.io/?EIO=4&transport=websocket",
+              "host": ["{{wsUrl}}"],
+              "path": ["socket.io", ""]
+            },
+            "description": "Stream high-frequency live GPS telemetry every 5 seconds. Ingests into Redis GEO/Hash with 1-hr TTL, buffers for Postgres batch flush, and broadcasts `member:location` to the room."
+          }
+        },
+        {
+          "name": "WS Client Emit: plan:ack (Confirm Route Receipt)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"plan:ack\",\n  \"data\": {\n    \"planId\": \"{{planId}}\",\n    \"groupId\": \"{{groupId}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{wsUrl}}/socket.io/?EIO=4&transport=websocket",
+              "host": ["{{wsUrl}}"],
+              "path": ["socket.io", ""]
+            },
+            "description": "Client acknowledges receipt and rendering of a newly published travel route."
+          }
+        },
+        {
+          "name": "WS Client Emit: leave_group",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"leave_group\",\n  \"data\": {\n    \"groupId\": \"{{groupId}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{wsUrl}}/socket.io/?EIO=4&transport=websocket",
+              "host": ["{{wsUrl}}"],
+              "path": ["socket.io", ""]
+            },
+            "description": "Client leaves the group room. Other members in the room receive `member:left`."
+          }
+        },
+        {
+          "name": "WS Inbound Listener: member:location (Movement Stream)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{wsUrl}}/socket.io/?EIO=4&transport=websocket",
+              "host": ["{{wsUrl}}"],
+              "path": ["socket.io", ""]
+            },
+            "description": "Received when another member streams their live GPS telemetry tick.\n\nPayload Example:\n{\n  \"userId\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"lat\": 27.7172,\n  \"lng\": 85.3240,\n  \"altitude\": 1450.5,\n  \"speed\": 1.25,\n  \"battery\": 88,\n  \"timestamp\": \"2026-09-17T16:00:00.000Z\"\n}"
+          }
+        },
+        {
+          "name": "WS Inbound Listener: PlanUpdate (New Route Broadcast)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{wsUrl}}/socket.io/?EIO=4&transport=websocket",
+              "host": ["{{wsUrl}}"],
+              "path": ["socket.io", ""]
+            },
+            "description": "Received when the Guide publishes a new GPX or GeoJSON route.\n\nPayload Example:\n{\n  \"planId\": \"d4c3b2a1-e5f6-7890-abcd-ef1234567890\",\n  \"groupId\": \"{{groupId}}\",\n  \"title\": \"Annapurna Base Camp Trek\",\n  \"route\": {\n    \"type\": \"LineString\",\n    \"coordinates\": [\n      [85.324, 27.7172, 1400],\n      [85.340, 27.7250, 1450]\n    ]\n  },\n  \"totalDistanceMeters\": 12450.0\n}"
+          }
+        },
+        {
+          "name": "WS Inbound Listener: member:location_recovered (Mesh Sync Alert)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{wsUrl}}/socket.io/?EIO=4&transport=websocket",
+              "host": ["{{wsUrl}}"],
+              "path": ["socket.io", ""]
+            },
+            "description": "Received when a peer uploads an offline mesh telemetry ledger via Good Samaritan relay sync.\n\nPayload Example:\n{\n  \"userId\": \"lost-user-uuid\",\n  \"lat\": 27.7172,\n  \"lng\": 85.3240,\n  \"altitude\": 1450.0,\n  \"battery\": 14,\n  \"recordedAt\": \"2026-09-17T15:30:00.000Z\",\n  \"relayedBy\": \"good-samaritan-uuid\"\n}"
+          }
+        },
+        {
+          "name": "WS Inbound Listener: emergency:distress (SOS Alert)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{wsUrl}}/socket.io/?EIO=4&transport=websocket",
+              "host": ["{{wsUrl}}"],
+              "path": ["socket.io", ""]
+            },
+            "description": "High-priority alert emitted when a group member activates Rescue Mode (SOS).\n\nPayload Example:\n{\n  \"alertId\": \"emergency-1726591800000\",\n  \"userId\": \"distressed-user-uuid\",\n  \"userName\": \"Jane Doe\",\n  \"userPhone\": \"+1-555-0199\",\n  \"lat\": 27.9881,\n  \"lng\": 86.9250,\n  \"battery\": 14,\n  \"reason\": \"Injured ankle on steep descent\",\n  \"timestamp\": \"2026-09-17T16:50:00.000Z\"\n}"
+          }
+        },
+        {
+          "name": "WS Inbound Listener: member:joined & member:left",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{wsUrl}}/socket.io/?EIO=4&transport=websocket",
+              "host": ["{{wsUrl}}"],
+              "path": ["socket.io", ""]
+            },
+            "description": "Received when a member connects to or leaves the active group room.\n\nPayload Example:\n{\n  \"userId\": \"member-uuid\",\n  \"timestamp\": \"2026-09-17T16:00:00.000Z\"\n}"
+          }
+        }
+      ]
+    }
+  ]
+}
