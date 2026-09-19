@@ -83,6 +83,35 @@ describe('GroupsService Integration', () => {
     expect(completed.status).toBe('COMPLETED');
   });
 
+  it('should clear members when a completed expedition is reactivated', async () => {
+    const guide = await AuthService.register({
+      email: `guide-${Date.now()}@reactivate.com`,
+      password: 'Password123!',
+      name: 'Reactivate Guide',
+      role: 'GUIDE',
+    });
+    const member = await AuthService.register({
+      email: `member-${Date.now()}@reactivate.com`,
+      password: 'Password123!',
+      name: 'Leaving Member',
+      role: 'MEMBER',
+    });
+
+    const group = await GroupsService.createGroup({
+      name: 'Reactivate Expedition',
+      createdBy: guide.id,
+    });
+    await GroupsService.joinGroupByInviteCode(member.id, group.invite_code);
+    await GroupsService.setGroupStatus(guide.id, group.id, 'COMPLETED');
+
+    const reactivated = await GroupsService.setGroupStatus(guide.id, group.id, 'PENDING');
+    expect(reactivated.status).toBe('PENDING');
+
+    const members = await GroupsService.getGroupMembers(group.id);
+    expect(members.some((m) => m.user_id === member.id)).toBe(false);
+    expect(members.some((m) => m.user_id === guide.id && m.role === 'GUIDE')).toBe(true);
+  });
+
   it('should not let a guide run two expeditions at once', async () => {
     const guide = await AuthService.register({
       email: `guide-${Date.now()}@ongoing.com`,

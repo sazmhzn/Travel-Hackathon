@@ -415,8 +415,11 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
     );
   }
 
-  void _openGroup(Map<String, dynamic> group) {
-    context.push('/expedition/${group['id']}');
+  Future<void> _openGroup(Map<String, dynamic> group) async {
+    await context.push('/expedition/${group['id']}');
+    // Reload so start/complete actions taken inside the details page are
+    // reflected on this screen when the user navigates back.
+    if (mounted) await _loadData();
   }
 
   Widget _searchBar() {

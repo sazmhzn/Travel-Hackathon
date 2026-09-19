@@ -15,15 +15,19 @@ class MainActivity: FlutterActivity() {
     private val MESH_METHOD_CHANNEL = "com.example.tt/mesh_control"
     private val MESH_EVENT_CHANNEL = "com.example.tt/mesh_updates"
 
+    private val HOTSPOT_METHOD_CHANNEL = "com.example.tt/hotspot_control"
+
     private var eventSink: EventChannel.EventSink? = null
     private var meshEventSink: EventChannel.EventSink? = null
     
     private lateinit var nearbyMeshService: NearbyMeshService
+    private lateinit var hotspotService: HotspotService
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
         nearbyMeshService = NearbyMeshService(this)
+        hotspotService = HotspotService(this)
 
         // Location Channels
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
@@ -115,6 +119,49 @@ class MainActivity: FlutterActivity() {
                 }
             }
         )
+
+        // Hotspot Channels
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, HOTSPOT_METHOD_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "hasInternet" -> {
+                    result.success(hotspotService.hasInternet())
+                }
+                "startHotspot" -> {
+                    Thread {
+                        val credentials = hotspotService.startHotspot()
+                        runOnUiThread { result.success(credentials) }
+                    }.start()
+                }
+                "stopHotspot" -> {
+                    hotspotService.stopHotspot()
+                    result.success(true)
+                }
+                "connectToHotspot" -> {
+                    val ssid = call.argument<String>("ssid")
+                    val password = call.argument<String>("password") ?: ""
+                    if (ssid == null) {
+                        result.error("INVALID_SSID", "SSID cannot be null", null)
+                    } else {
+                        Thread {
+                            val connected = hotspotService.connectToHotspot(ssid, password)
+                            runOnUiThread { result.success(connected) }
+                        }.start()
+                    }
+                }
+                "disconnect" -> {
+                    hotspotService.disconnectHotspot()
+                    result.success(true)
+                }
+                else -> {
+                    result.notImplemented()
+                }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        hotspotService.stopAll()
+        super.onDestroy()
     }
 
     private fun startLocationService() {

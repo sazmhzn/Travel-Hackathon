@@ -6,6 +6,7 @@ class DraftRoute {
   String? description;
   String activityType;
   String visibility;
+  String? groupId;
 
   bool isCompleted;
   bool isSynced;
@@ -17,6 +18,7 @@ class DraftRoute {
     this.description,
     this.activityType = 'trekking',
     this.visibility = 'public',
+    this.groupId,
     this.isCompleted = false,
     this.isSynced = false,
   });
@@ -29,6 +31,7 @@ class DraftRoute {
       'description': description,
       'activityType': activityType,
       'visibility': visibility,
+      'groupId': groupId,
       'isCompleted': isCompleted ? 1 : 0,
       'isSynced': isSynced ? 1 : 0,
     };
@@ -43,6 +46,7 @@ class DraftRoute {
       description: map['description'] as String?,
       activityType: map['activityType'] as String? ?? 'trekking',
       visibility: map['visibility'] as String? ?? 'public',
+      groupId: map['groupId'] as String?,
       isCompleted: (map['isCompleted'] as int) == 1,
       isSynced: (map['isSynced'] as int) == 1,
     );

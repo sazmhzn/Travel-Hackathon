@@ -68,7 +68,9 @@ final router = GoRouter(
         ),
         GoRoute(
           path: '/map',
-          builder: (context, state) => const MapScreen(),
+          builder: (context, state) => MapScreen(
+            expeditionId: state.uri.queryParameters['expeditionId'],
+          ),
         ),
         GoRoute(
           path: '/radar',

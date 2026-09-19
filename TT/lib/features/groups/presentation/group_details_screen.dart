@@ -18,6 +18,7 @@ class GroupDetailsScreen extends ConsumerStatefulWidget {
 
 class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
   Map<String, dynamic>? _details;
+  List<Map<String, dynamic>> _routes = [];
   bool _isLoading = true;
   bool _isBusy = false;
   String? _currentUserId;
@@ -33,6 +34,8 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     final profile = await ref.read(authServiceProvider).getProfile();
     final details =
         await ref.read(groupServiceProvider).getGroupDetails(widget.groupId);
+    final routes =
+        await ref.read(groupServiceProvider).getGroupRoutes(widget.groupId);
     if (!mounted) return;
     final members = (details?['members'] as List?) ?? [];
     final currentId = profile?['id']?.toString();
@@ -41,6 +44,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
       _isCurrentUserGuide = members.any((m) =>
           m['user_id']?.toString() == currentId && m['role'] == 'GUIDE');
       _details = details;
+      _routes = routes;
       _isLoading = false;
     });
   }
@@ -56,12 +60,12 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
       case GroupStatusUpdate.success:
         await _load();
         if (mounted) {
-          showAppSnack(
-            context,
-            status == 'ONGOING'
-                ? 'Expedition started.'
-                : 'Expedition completed.',
-          );
+          final message = switch (status) {
+            'ONGOING' => 'Expedition started.',
+            'COMPLETED' => 'Expedition completed.',
+            _ => 'Expedition reactivated. Members were cleared.',
+          };
+          showAppSnack(context, message);
         }
         break;
       case GroupStatusUpdate.ongoingExists:
@@ -92,6 +96,34 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmReactivate() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.restart_alt, size: 36),
+        title: const Text('Reactivate expedition?'),
+        content: const Text(
+          'This expedition will return to pending and all members will be '
+          'removed. You can start it again with a fresh roster.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Reactivate'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _changeStatus('PENDING');
+    }
   }
 
   Future<void> _editExpedition() async {
@@ -242,7 +274,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     await prefs.setString('active_group_id', widget.groupId);
     if (mounted) {
       showAppSnack(context, 'Set as your active expedition.');
-      context.go('/map');
+      context.go('/map?expeditionId=${widget.groupId}');
     }
   }
 
@@ -266,6 +298,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                       _statsRow(),
                       const SizedBox(height: 8),
                       if (_isCurrentUserGuide) _guideControls(),
+                      ..._routesSection(),
                       ..._missingSection(),
                       ..._membersSection(),
                     ],
@@ -434,6 +467,12 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                   onPressed: _isBusy ? null : () => _changeStatus('COMPLETED'),
                   icon: const Icon(Icons.flag),
                   label: const Text('Complete expedition'),
+                )
+              else
+                FilledButton.tonalIcon(
+                  onPressed: _isBusy ? null : _confirmReactivate,
+                  icon: const Icon(Icons.restart_alt),
+                  label: const Text('Reactivate expedition'),
                 ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
@@ -446,6 +485,45 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
         ),
       ),
     );
+  }
+
+  List<Widget> _routesSection() {
+    if (!_isCurrentUserGuide) return [];
+    final scheme = Theme.of(context).colorScheme;
+
+    return [
+      SectionHeader(title: 'Routes', count: _routes.length),
+      if (_routes.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            'No routes recorded for this expedition yet. Use the map to record one.',
+            style: TextStyle(color: scheme.onSurfaceVariant),
+          ),
+        ),
+      for (final route in _routes)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Card(
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: scheme.primaryContainer.withValues(alpha: 0.3),
+                foregroundColor: scheme.primary,
+                child: const Icon(Icons.route),
+              ),
+              title: Text(
+                route['title']?.toString() ?? 'Untitled route',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(
+                '${_activityLabel(route['activity_type'])} · '
+                '${_formatDistance(route['total_distance_meters'])} · '
+                '${_relativeTime(route['created_at'])}',
+              ),
+            ),
+          ),
+        ),
+    ];
   }
 
   List<Widget> _missingSection() {
@@ -685,6 +763,18 @@ class _ErrorState extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatDistance(dynamic meters) {
+  if (meters is! num) return '—';
+  if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(1)} km';
+  return '${meters.round()} m';
+}
+
+String _activityLabel(dynamic type) {
+  final value = type?.toString() ?? '';
+  if (value.isEmpty) return 'Route';
+  return value[0].toUpperCase() + value.substring(1);
 }
 
 String _initials(String name) {

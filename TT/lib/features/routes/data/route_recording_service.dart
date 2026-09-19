@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/database_provider.dart';
 import '../../../core/api_client.dart';
 import 'models/draft_route.dart';
@@ -39,10 +40,25 @@ class RouteRecordingService {
     return pointRows.map(RoutePoint.fromMap).toList();
   }
 
-  Future<void> startRecording({double? initialLat, double? initialLng}) async {
+  Future<void> startRecording({
+    double? initialLat,
+    double? initialLng,
+    String? groupId,
+  }) async {
     final db = await _ref.read(databaseProvider.future);
 
-    final draft = DraftRoute(startTime: DateTime.now(), isCompleted: false);
+    // Tag the recording with the expedition it belongs to, if one is active.
+    final prefs = await SharedPreferences.getInstance();
+    final activeGroupId = groupId ?? prefs.getString('active_group_id');
+    if (groupId != null && groupId.isNotEmpty) {
+      await prefs.setString('active_group_id', groupId);
+    }
+
+    final draft = DraftRoute(
+      startTime: DateTime.now(),
+      groupId: (activeGroupId?.isEmpty ?? true) ? null : activeGroupId,
+      isCompleted: false,
+    );
     _activeRouteId = await db.insert('draft_routes', draft.toMap());
 
     // Immediately add the first point if provided
@@ -138,6 +154,7 @@ class RouteRecordingService {
         "description": draft.description,
         "activity_type": draft.activityType,
         "visibility": draft.visibility,
+        if (draft.groupId != null) "group_id": draft.groupId,
         "geoJson": geoJson,
       });
 

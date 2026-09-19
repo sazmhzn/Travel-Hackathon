@@ -111,6 +111,40 @@ describe('Spatial Path Ingestion (Routes API)', () => {
     expect(body.route.bounding_box.type).toBe('Polygon');
   });
 
+  it('POST /api/routes/record - should associate a route with an expedition and list it', async () => {
+    const groupRes = await app.inject({
+      method: 'POST',
+      url: '/api/groups',
+      headers: { authorization: `Bearer ${guideToken}` },
+      payload: { name: `Route Expedition ${Date.now()}` },
+    });
+    expect(groupRes.statusCode).toBe(201);
+    const groupId = JSON.parse(groupRes.body).group.id;
+
+    const recordRes = await app.inject({
+      method: 'POST',
+      url: '/api/routes/record',
+      headers: { authorization: `Bearer ${guideToken}` },
+      payload: {
+        title: 'Expedition Recon Track',
+        activity_type: 'trekking',
+        group_id: groupId,
+        geoJson: validHimalayanTrack,
+      },
+    });
+    expect(recordRes.statusCode).toBe(201);
+    expect(JSON.parse(recordRes.body).route.group_id).toBe(groupId);
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: `/api/routes/group/${groupId}`,
+    });
+    expect(listRes.statusCode).toBe(200);
+    const routes = JSON.parse(listRes.body).routes;
+    expect(routes.length).toBeGreaterThanOrEqual(1);
+    expect(routes.every((r: any) => r.group_id === groupId)).toBe(true);
+  });
+
   it('POST /api/routes/record - should reject Member role with 403 Forbidden', async () => {
     const res = await app.inject({
       method: 'POST',

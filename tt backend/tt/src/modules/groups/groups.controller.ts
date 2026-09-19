@@ -213,6 +213,49 @@ export async function groupRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // 5c. Set the guide's offline hotspot credentials (Guide only)
+  fastify.patch(
+    '/:groupId/hotspot',
+    {
+      schema: {
+        description: 'Store the guide hotspot SSID/password for offline live tracking (guide only)',
+        tags: ['Groups'],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['groupId'],
+          properties: {
+            groupId: { type: 'string' },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['ssid', 'password'],
+          properties: {
+            ssid: { type: 'string', minLength: 1, maxLength: 64 },
+            password: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const params = request.params as { groupId: string };
+        const body = request.body as { ssid: string; password: string };
+        const group = await GroupsService.setHotspot(
+          request.user.id,
+          params.groupId,
+          body.ssid,
+          body.password
+        );
+        return reply.send({ group });
+      } catch (err: any) {
+        const status = /guide/i.test(err.message) ? 403 : 400;
+        return reply.status(status).send({ error: 'SetHotspotFailed', message: err.message });
+      }
+    }
+  );
+
   // 6. Get Group Members
   fastify.get(
     '/:groupId/members',

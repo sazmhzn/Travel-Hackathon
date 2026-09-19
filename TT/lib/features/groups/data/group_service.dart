@@ -79,6 +79,22 @@ class GroupService {
     }
   }
 
+  /// Returns every route recorded within an expedition.
+  Future<List<Map<String, dynamic>>> getGroupRoutes(String groupId) async {
+    try {
+      final response = await _client.get('/routes/group/$groupId');
+      final data = response.data;
+      final list = data is Map<String, dynamic> ? data['routes'] : data;
+      if (list is List) {
+        return list.cast<Map<String, dynamic>>();
+      }
+      return [];
+    } catch (e) {
+      print('Get group routes error: $e');
+      return [];
+    }
+  }
+
   Future<Map<String, dynamic>?> getGroupDetails(String groupId) async {
     try {
       final response = await _client.get('/groups/$groupId');
@@ -116,6 +132,25 @@ class GroupService {
     } catch (e) {
       print('Set group status error: $e');
       return GroupStatusUpdate.failed;
+    }
+  }
+
+  /// Stores the guide's offline hotspot credentials so members can join the
+  /// expedition's local network. Guide only.
+  Future<bool> setHotspot(
+    String groupId, {
+    required String ssid,
+    required String password,
+  }) async {
+    try {
+      final response = await _client.patch(
+        '/groups/$groupId/hotspot',
+        data: {'ssid': ssid, 'password': password},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Set hotspot error: $e');
+      return false;
     }
   }
 

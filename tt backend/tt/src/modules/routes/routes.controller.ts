@@ -23,6 +23,7 @@ export async function routeRoutes(fastify: FastifyInstance) {
               enum: ['public', 'private', 'group'],
               default: 'public'
             },
+            group_id: { type: 'string' },
             geoJson: {
               type: 'object',
               required: ['type', 'coordinates'],
@@ -52,6 +53,7 @@ export async function routeRoutes(fastify: FastifyInstance) {
                 properties: {
                   id: { type: 'string' },
                   guide_id: { type: 'string' },
+                  group_id: { type: ['string', 'null'] },
                   title: { type: 'string' },
                   activity_type: { type: 'string' },
                   visibility: { type: 'string' },
@@ -97,6 +99,7 @@ export async function routeRoutes(fastify: FastifyInstance) {
           title: body.title,
           activityType: body.activity_type,
           visibility: body.visibility || 'public',
+          groupId: body.group_id,
           geoJson: body.geoJson,
         });
 
@@ -110,6 +113,29 @@ export async function routeRoutes(fastify: FastifyInstance) {
           message: err.message || 'Failed to record spatial route',
         });
       }
+    }
+  );
+
+  // GET /api/routes/group/:groupId - List routes recorded within an expedition
+  fastify.get(
+    '/group/:groupId',
+    {
+      schema: {
+        description: 'List all routes recorded within a specific expedition',
+        tags: ['Routes'],
+        params: {
+          type: 'object',
+          required: ['groupId'],
+          properties: {
+            groupId: { type: 'string' },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { groupId } = request.params as { groupId: string };
+      const routes = await RoutesService.getRoutesByGroup(groupId);
+      return reply.send({ routes });
     }
   );
 

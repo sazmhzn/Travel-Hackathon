@@ -18,6 +18,20 @@ class MeshNetworkService {
 
   StreamSubscription? _meshSubscription;
 
+  final _peerTelemetryController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _hotspotCredentialsController =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  /// Live telemetry received directly from peers over the P2P mesh (works
+  /// without internet or a backend).
+  Stream<Map<String, dynamic>> get peerTelemetryStream =>
+      _peerTelemetryController.stream;
+
+  /// Hotspot credentials broadcast by the guide when the internet drops.
+  Stream<Map<String, dynamic>> get hotspotCredentialsStream =>
+      _hotspotCredentialsController.stream;
+
   MeshNetworkService(this._ref);
 
   Future<void> startAdvertising(String userId) async {
@@ -80,6 +94,18 @@ class MeshNetworkService {
   Future<void> _handleIncomingPayload(String jsonPayload) async {
     try {
       final data = jsonDecode(jsonPayload) as Map<String, dynamic>;
+
+      // Control messages (not telemetry) are routed to their own listeners.
+      final type = data['type']?.toString();
+      if (type == 'hotspot_credentials') {
+        _hotspotCredentialsController.add(data);
+        return;
+      }
+
+      // Surface the peer's live position immediately (works fully offline).
+      if (data['lat'] != null && data['lng'] != null) {
+        _peerTelemetryController.add(data);
+      }
 
       // Parse to our Isar DB Record
       final record = OfflineTelemetryRecord(

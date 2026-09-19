@@ -7,6 +7,7 @@ final socketServiceProvider = Provider((ref) => SocketService());
 
 class SocketService {
   IO.Socket? _socket;
+  String? _pendingGroupId;
   
   // Streams for incoming events
   final _peerLocationController = StreamController<Map<String, dynamic>>.broadcast();
@@ -36,6 +37,11 @@ class SocketService {
 
     _socket!.onConnect((_) {
       print('Socket.IO Connected');
+      // Re-join the active expedition room on (re)connect so live member
+      // locations keep flowing.
+      if (_pendingGroupId != null) {
+        _socket!.emit('join_group', {'groupId': _pendingGroupId});
+      }
     });
 
     _socket!.onDisconnect((_) {
@@ -69,12 +75,14 @@ class SocketService {
   }
 
   void joinGroup(String groupId) {
+    _pendingGroupId = groupId;
     if (_socket?.connected ?? false) {
       _socket!.emit('join_group', {'groupId': groupId});
     }
   }
 
   void leaveGroup(String groupId) {
+    if (_pendingGroupId == groupId) _pendingGroupId = null;
     if (_socket?.connected ?? false) {
       _socket!.emit('leave_group', {'groupId': groupId});
     }

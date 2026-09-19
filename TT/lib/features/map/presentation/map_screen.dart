@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,9 +15,16 @@ import '../../social/data/deep_link_service.dart';
 import '../../../core/socket_service.dart';
 import '../../auth/data/auth_service.dart';
 import '../../routes/data/route_recording_service.dart';
+import '../../groups/data/group_service.dart';
+import '../../mesh/data/mesh_network_service.dart';
+import '../data/hotspot_service.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
-  const MapScreen({super.key});
+  const MapScreen({super.key, this.expeditionId});
+
+  /// Expedition the guide is navigating for. When set, guides may record and
+  /// save routes against this expedition.
+  final String? expeditionId;
 
   @override
   ConsumerState<MapScreen> createState() => _MapScreenState();
@@ -32,18 +40,36 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _hasCenteredOnUser = false;
   Circle? _userLocationCircle;
   String? _userRole;
+  String? _currentUserId;
   bool _isRecording = false;
   LatLng? _currentLocation;
   Circle? _startMarkerCircle;
   List<LatLng> _activeRoutePoints = [];
 
+  // Expedition live-tracking state
+  final Map<String, Map<String, dynamic>> _roster = {};
+  final Map<String, LatLng> _peerLocations = {};
+  final Map<String, Offset> _peerScreenPositions = {};
+  StreamSubscription? _meshTelemetrySub;
+  StreamSubscription? _meshHotspotSub;
+  bool _offline = false;
+  bool _hotspotActive = false;
+
   @override
   void initState() {
     super.initState();
-    _loadRegionInfo();
+    _loadRegionInfo().then((_) => _loadExpedition());
     _setupLocationListener();
     _setupDeepLinks();
     _setupSocketListeners();
+    _setupMeshListeners();
+  }
+
+  @override
+  void dispose() {
+    _meshTelemetrySub?.cancel();
+    _meshHotspotSub?.cancel();
+    super.dispose();
   }
 
   void _setupSocketListeners() {
@@ -51,10 +77,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     
     // Listen for peer locations to render them on the map
     socketSvc.peerLocationStream.listen((data) {
-      final lat = data['lat'] as double;
-      final lng = data['lng'] as double;
+      final lat = (data['lat'] as num).toDouble();
+      final lng = (data['lng'] as num).toDouble();
       final userId = data['userId'] as String? ?? 'peer';
-      _updatePeerMarker(userId, LatLng(lat, lng));
+      _onPeerLocation(userId, LatLng(lat, lng));
     });
 
     // Listen for new routes (PlanUpdate)
@@ -86,27 +112,160 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     });
   }
 
-  final Map<String, Circle> _peerMarkers = {};
+  /// Records a peer's position and repaints the Flutter overlay badges.
+  void _onPeerLocation(String userId, LatLng loc) {
+    _peerLocations[userId] = loc;
+    _refreshPeerScreenPositions();
+    if (mounted) setState(() {});
+  }
 
-  Future<void> _updatePeerMarker(String userId, LatLng loc) async {
+  Future<void> _refreshPeerScreenPositions() async {
     if (mapController == null) return;
-    
-    if (_peerMarkers.containsKey(userId)) {
-      await mapController!.updateCircle(
-        _peerMarkers[userId]!,
-        CircleOptions(geometry: loc)
-      );
+    for (final entry in _peerLocations.entries) {
+      try {
+        final screen = await mapController!.toScreenLocation(entry.value);
+        _peerScreenPositions[entry.key] = Offset(
+          screen.x.toDouble(),
+          screen.y.toDouble(),
+        );
+      } catch (_) {
+        // Map not ready yet; skip this frame.
+      }
+    }
+  }
+
+  /// Loads the expedition roster so peers can be labelled and the guide
+  /// distinguished, then checks whether we need the offline hotspot.
+  Future<void> _loadExpedition() async {
+    final groupId = widget.expeditionId;
+    if (groupId == null) return;
+
+    // Make sure this expedition is the active one for location broadcasts.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('active_group_id', groupId);
+
+    // Fetch the roster, falling back to a cached copy so labels still work
+    // once the device goes offline inside the expedition.
+    List<Map<String, dynamic>> members = [];
+    try {
+      final details =
+          await ref.read(groupServiceProvider).getGroupDetails(groupId);
+      members = (details?['members'] as List? ?? [])
+          .cast<Map<String, dynamic>>();
+      await prefs.setString('roster_$groupId', jsonEncode(members));
+    } catch (e) {
+      print('Failed to load expedition roster: $e');
+      final cached = prefs.getString('roster_$groupId');
+      if (cached != null) {
+        members = (jsonDecode(cached) as List).cast<Map<String, dynamic>>();
+      }
+    }
+
+    var number = 0;
+    _roster.clear();
+    for (final member in members) {
+      final userId = member['user_id']?.toString() ?? '';
+      if (userId.isEmpty) continue;
+      final isGuide = member['role']?.toString() == 'GUIDE';
+      if (!isGuide) number++;
+      _roster[userId] = {
+        'name': member['name']?.toString() ?? 'Member',
+        'role': member['role']?.toString() ?? 'MEMBER',
+        'number': isGuide ? null : number,
+      };
+      // Seed last-known positions so everyone appears immediately, not only
+      // after their next live update.
+      final lat = member['lat'];
+      final lng = member['lng'];
+      if (userId != _currentUserId && lat is num && lng is num) {
+        _peerLocations[userId] = LatLng(lat.toDouble(), lng.toDouble());
+      }
+    }
+    if (mounted) setState(() {});
+    await _refreshPeerScreenPositions();
+
+    // Join the expedition room and start broadcasting our position so every
+    // member's live location shows up on the map.
+    final socket = ref.read(socketServiceProvider);
+    await socket.connect();
+    socket.joinGroup(groupId);
+    if (!_isTracking) {
+      await _toggleTracking();
+    }
+
+    await _checkConnectivity();
+  }
+
+  void _setupMeshListeners() {
+    final mesh = ref.read(meshNetworkServiceProvider);
+    _meshTelemetrySub = mesh.peerTelemetryStream.listen((data) {
+      final lat = data['lat'];
+      final lng = data['lng'];
+      if (lat is num && lng is num) {
+        _onPeerLocation(
+          data['userId']?.toString() ?? 'peer',
+          LatLng(lat.toDouble(), lng.toDouble()),
+        );
+      }
+    });
+
+    _meshHotspotSub = mesh.hotspotCredentialsStream.listen((data) async {
+      if (widget.expeditionId != null &&
+          data['groupId']?.toString() != widget.expeditionId) {
+        return;
+      }
+      final ssid = data['ssid']?.toString();
+      final password = data['password']?.toString() ?? '';
+      if (ssid == null || ssid.isEmpty) return;
+      final connected = await ref
+          .read(hotspotServiceProvider)
+          .connectToHotspot(ssid, password);
+      if (mounted && connected) {
+        setState(() => _hotspotActive = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Joined the guide's offline network.")),
+        );
+      }
+    });
+  }
+
+  /// If the internet is down for an ongoing expedition, the guide opens a
+  /// hotspot and shares its credentials; members join it so live locations
+  /// keep flowing over the LAN.
+  Future<void> _checkConnectivity() async {
+    final groupId = widget.expeditionId;
+    if (groupId == null) {
+      if (mounted) setState(() => _offline = false);
+      return;
+    }
+
+    final online = await ref.read(hotspotServiceProvider).hasInternet();
+    if (mounted) setState(() => _offline = !online);
+    if (online) return;
+
+    final mesh = ref.read(meshNetworkServiceProvider);
+    if (_userRole == 'GUIDE') {
+      final credentials = await ref.read(hotspotServiceProvider).startHotspot();
+      if (credentials == null) return;
+      final ssid = credentials['ssid'] ?? '';
+      final password = credentials['password'] ?? '';
+      if (ssid.isEmpty) return;
+
+      _hotspotActive = true;
+      // Best-effort persist for members who regain a connection later.
+      await ref
+          .read(groupServiceProvider)
+          .setHotspot(groupId, ssid: ssid, password: password);
+      await mesh.startAdvertising('guide');
+      await mesh.broadcastPayload({
+        'type': 'hotspot_credentials',
+        'groupId': groupId,
+        'ssid': ssid,
+        'password': password,
+      });
+      if (mounted) setState(() {});
     } else {
-      final circle = await mapController!.addCircle(
-        CircleOptions(
-          geometry: loc,
-          circleRadius: 6.0,
-          circleColor: '#00FF00', // green for peers
-          circleStrokeWidth: 1.5,
-          circleStrokeColor: '#FFFFFF',
-        )
-      );
-      _peerMarkers[userId] = circle;
+      await mesh.startDiscovery();
     }
   }
 
@@ -295,6 +454,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     
     final profile = await ref.read(authServiceProvider).getProfile();
     _userRole = profile?['user']?['role'] ?? profile?['role']; // Handle different response shapes
+    _currentUserId =
+        (profile?['user']?['id'] ?? profile?['id'])?.toString();
 
     setState(() {});
   }
@@ -433,7 +594,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Save Recorded Path'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -443,7 +604,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
               await ref.read(routeRecordingServiceProvider).stopRecording(
@@ -459,7 +620,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               setState(() {
                 _isRecording = false;
               });
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
+
+              // When recording for an expedition, return to it so the newly
+              // created route is visible in the expedition's route list.
+              final groupId = widget.expeditionId;
+              if (groupId != null) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Route saved to expedition.')),
+                  );
+                  context.go('/expedition/$groupId');
+                }
+                return;
+              }
+
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Path saved and syncing...')));
             },
             child: const Text('Save'),
@@ -468,6 +643,83 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ),
     );
   }
+
+  List<Widget> _buildPeerBadges() {
+    final badges = <Widget>[];
+    _peerScreenPositions.forEach((userId, position) {
+      final info = _roster[userId];
+      final isGuide = info?['role'] == 'GUIDE';
+      final isSelf = userId == _currentUserId;
+      final label = isGuide ? 'G' : '${info?['number'] ?? '?'}';
+      final color = isGuide ? const Color(0xFF1D4ED8) : const Color(0xFFEC4899);
+      badges.add(
+        Positioned(
+          left: position.dx - 16,
+          top: position.dy - 16,
+          child: IgnorePointer(
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isSelf ? Colors.white : Colors.white70,
+                  width: isSelf ? 3 : 2,
+                ),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+    return badges;
+  }
+
+  Widget _offlineBanner() {
+    return Positioned(
+      top: 12,
+      left: 12,
+      right: 12,
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.75),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              Icon(
+                _hotspotActive ? Icons.wifi_tethering : Icons.wifi_off,
+                color: Colors.white,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _hotspotActive
+                      ? (_userRole == 'GUIDE'
+                          ? 'Offline: hotspot on. Members can join to share location.'
+                          : "Offline: connected to the guide's network.")
+                      : 'Offline: locating peers over the local mesh.',
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -497,14 +749,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
         ],
       ),
-      body: MapLibreMap(
-        onMapCreated: _onMapCreated,
-        onStyleLoadedCallback: _onStyleLoaded,
-        initialCameraPosition: CameraPosition(
-          target: _initialTarget,
-          zoom: 12.0,
-        ),
-        styleString: MapLibreStyles.openfreemapLiberty,
+      body: Stack(
+        children: [
+          MapLibreMap(
+            onMapCreated: _onMapCreated,
+            onStyleLoadedCallback: _onStyleLoaded,
+            onCameraIdle: _refreshPeerScreenPositions,
+            onCameraMove: (_) => _refreshPeerScreenPositions(),
+            initialCameraPosition: CameraPosition(
+              target: _initialTarget,
+              zoom: 12.0,
+            ),
+            styleString: MapLibreStyles.openfreemapLiberty,
+          ),
+          ..._buildPeerBadges(),
+          if (_offline) _offlineBanner(),
+        ],
       ),
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
@@ -541,7 +801,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: const Icon(Icons.warning),
           ),
           const SizedBox(height: 16),
-          if (_userRole == 'GUIDE')
+          if (_userRole == 'GUIDE' &&
+              (widget.expeditionId != null || _isRecording))
             FloatingActionButton(
               heroTag: 'recordBtn',
               onPressed: () async {
@@ -561,6 +822,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   await ref.read(routeRecordingServiceProvider).startRecording(
                     initialLat: _currentLocation?.latitude,
                     initialLng: _currentLocation?.longitude,
+                    groupId: widget.expeditionId,
                   );
 
                   // Add a "Start" marker at current position

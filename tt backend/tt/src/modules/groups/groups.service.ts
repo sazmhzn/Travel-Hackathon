@@ -15,6 +15,8 @@ export interface Group {
   created_at?: string;
   guide_name?: string;
   is_member?: boolean;
+  hotspot_ssid?: string | null;
+  hotspot_password?: string | null;
 }
 
 export interface GroupMember {
@@ -317,11 +319,25 @@ export class GroupsService {
       await this.assertNoOtherOngoing(userId, groupId);
     }
 
+    // Reactivating a completed expedition gives it a clean slate: all members
+    // (and co-guides) are removed, leaving only the owning guide.
+    const current = await this.getGroupById(groupId);
+    if (!current) {
+      throw new Error('Group not found');
+    }
+    if (current.status === 'COMPLETED' && status === 'PENDING') {
+      await this.clearMembersForReactivation(groupId, current.created_by);
+    }
+
     try {
       const res = await query(
-        `UPDATE groups SET status = $2, updated_at = CURRENT_TIMESTAMP
+        `UPDATE groups
+         SET status = $2,
+             hotspot_ssid = CASE WHEN $2 = 'COMPLETED' THEN NULL ELSE hotspot_ssid END,
+             hotspot_password = CASE WHEN $2 = 'COMPLETED' THEN NULL ELSE hotspot_password END,
+             updated_at = CURRENT_TIMESTAMP
          WHERE id = $1
-         RETURNING id, name, description, invite_code, created_by, status, created_at`,
+         RETURNING *`,
         [groupId, status]
       );
       if (res.rowCount === 0) {
@@ -333,6 +349,44 @@ export class GroupsService {
       const group = inMemoryGroups.get(groupId);
       if (!group) throw new Error('Group not found');
       group.status = status;
+      if (status === 'COMPLETED') {
+        group.hotspot_ssid = null;
+        group.hotspot_password = null;
+      }
+      return group;
+    }
+  }
+
+  /**
+   * Stores the guide's hotspot credentials for an expedition so members can
+   * join the same local network when there is no internet. Guide only.
+   */
+  static async setHotspot(
+    userId: string,
+    groupId: string,
+    ssid: string,
+    password: string
+  ): Promise<Group> {
+    if (!(await this.isUserGuideInGroup(userId, groupId))) {
+      throw new Error('Only the expedition guide can set the hotspot');
+    }
+
+    try {
+      const res = await query(
+        `UPDATE groups
+         SET hotspot_ssid = $2, hotspot_password = $3, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING *`,
+        [groupId, ssid, password]
+      );
+      if (res.rowCount === 0) throw new Error('Group not found');
+      return res.rows[0];
+    } catch (err: any) {
+      if (!isDatabaseOffline(err)) throw err;
+      const group = inMemoryGroups.get(groupId);
+      if (!group) throw new Error('Group not found');
+      group.hotspot_ssid = ssid;
+      group.hotspot_password = password;
       return group;
     }
   }
@@ -359,6 +413,30 @@ export class GroupsService {
       if (conflict) {
         throw new Error('Complete the ongoing expedition first');
       }
+    }
+  }
+
+  /**
+   * Removes every member and co-guide from an expedition, keeping only the
+   * owning guide. Used when a completed expedition is reactivated so it starts
+   * fresh for a new roster.
+   */
+  private static async clearMembersForReactivation(
+    groupId: string,
+    ownerId: string
+  ): Promise<void> {
+    try {
+      await query(
+        `DELETE FROM group_members WHERE group_id = $1 AND user_id <> $2`,
+        [groupId, ownerId]
+      );
+    } catch (err: any) {
+      if (!isDatabaseOffline(err)) throw err;
+      const list = inMemoryGroupMembers.get(groupId) || [];
+      inMemoryGroupMembers.set(
+        groupId,
+        list.filter((m) => m.user_id === ownerId)
+      );
     }
   }
 
