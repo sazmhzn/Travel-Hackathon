@@ -9,7 +9,7 @@
       "cwd": "${workspaceFolder}/TT",
       "flutterMode": "debug",
       "toolArgs": [
-        "--dart-define=API_BASE_URL=http://127.0.0.1:3000/api"
+        "--dart-define=API_BASE_URL=http://192.168.110.44:3000/api"
       ]
     },
     {
@@ -20,7 +20,7 @@
       "cwd": "${workspaceFolder}/TT",
       "flutterMode": "release",
       "toolArgs": [
-        "--dart-define=API_BASE_URL=http://127.0.0.1:3000/api"
+        "--dart-define=API_BASE_URL=http://192.168.110.44:3000/api"
       ]
     },
     {
@@ -32,7 +32,7 @@
       "flutterMode": "debug",
       "deviceId": "chrome",
       "toolArgs": [
-        "--dart-define=API_BASE_URL=http://127.0.0.1:3000/api"
+        "--dart-define=API_BASE_URL=http://192.168.110.44:3000/api"
       ]
     }
   ]

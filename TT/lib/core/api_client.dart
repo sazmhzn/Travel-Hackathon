@@ -8,12 +8,11 @@ final apiClientProvider = Provider((ref) => ApiClient());
 /// Overridable at build time:
 /// `flutter run --dart-define=API_BASE_URL=http://192.168.1.20:3000/api`
 ///
-/// The default targets the Android emulator host loopback (10.0.2.2).
-/// For a physical device over USB, run `adb reverse tcp:3000 tcp:3000` and
-/// pass `--dart-define=API_BASE_URL=http://127.0.0.1:3000/api`.
+/// The default targets the backend host machine on the local network.
+/// For a physical device, both must be on the same Wi-Fi/LAN.
 const String _apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://10.0.2.2:3000/api',
+  defaultValue: 'http://192.168.110.44:3000/api',
 );
 
 class ApiClient {

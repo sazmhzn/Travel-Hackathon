@@ -23,8 +23,8 @@ class SocketService {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
 
-    // For Android Emulator to host, use 10.0.2.2
-    const wsUrl = 'http://10.0.2.2:3000';
+    // Backend host machine on the local network (same Wi-Fi/LAN as the device).
+    const wsUrl = 'http://192.168.110.44:3000';
 
     _socket = IO.io(wsUrl, IO.OptionBuilder()
         .setTransports(['websocket'])

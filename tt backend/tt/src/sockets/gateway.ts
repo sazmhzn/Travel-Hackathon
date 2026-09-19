@@ -24,6 +24,7 @@ export function initializeSocketIO(httpServer: HttpServer): SocketIOServer {
     cors: {
       origin: '*',
       methods: ['GET', 'POST'],
+      allowedHeaders: '*',
     },
     transports: ['websocket', 'polling'],
   });
