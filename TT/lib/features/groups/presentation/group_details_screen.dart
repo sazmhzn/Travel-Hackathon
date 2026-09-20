@@ -50,15 +50,16 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     socket.joinGroup(widget.groupId);
     _groupEventSub = socket.groupEventStream.listen((data) {
       if (data['groupId']?.toString() != widget.groupId) return;
-      if (data['event'] == 'group_removed') {
-        _handleRemoved();
+      final event = data['event'];
+      if (event == 'group_removed' || event == 'group_deleted') {
+        _handleRemoved(deleted: event == 'group_deleted');
       } else {
         _load();
       }
     });
   }
 
-  Future<void> _handleRemoved() async {
+  Future<void> _handleRemoved({bool deleted = false}) async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getString('active_group_id') == widget.groupId) {
       await prefs.remove('active_group_id');
@@ -67,7 +68,13 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
       await prefs.remove('missing_threshold_${widget.groupId}');
     }
     if (!mounted) return;
-    showAppSnack(context, 'You were removed from this expedition.', error: true);
+    showAppSnack(
+      context,
+      deleted
+          ? 'This expedition was deleted.'
+          : 'You were removed from this expedition.',
+      error: true,
+    );
     context.go('/groups');
   }
 
@@ -310,6 +317,54 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     }
   }
 
+  Future<void> _confirmDelete() async {
+    final name =
+        _details?['group']?['name']?.toString() ?? 'this expedition';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.delete_forever, size: 36, color: AppTheme.danger),
+        title: const Text('Delete expedition?'),
+        content: Text(
+          'This permanently deletes "$name" and removes every member. '
+          'Recorded routes are kept. This cannot be undone.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _isBusy = true);
+    final error = await ref.read(groupServiceProvider).deleteGroup(widget.groupId);
+    if (!mounted) return;
+    setState(() => _isBusy = false);
+    if (error == null) {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString('active_group_id') == widget.groupId) {
+        await prefs.remove('active_group_id');
+        await prefs.remove('roster_${widget.groupId}');
+        await prefs.remove('group_status_${widget.groupId}');
+        await prefs.remove('missing_threshold_${widget.groupId}');
+      }
+      if (!mounted) return;
+      showAppSnack(context, 'Expedition deleted.');
+      context.go('/groups');
+    } else if (mounted) {
+      showAppSnack(context, error, error: true);
+    }
+  }
+
   Future<void> _useForNavigation() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('active_group_id', widget.groupId);
@@ -520,6 +575,16 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                 onPressed: _isBusy ? null : _editExpedition,
                 icon: const Icon(Icons.edit_outlined),
                 label: const Text('Edit expedition'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _isBusy ? null : _confirmDelete,
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Delete expedition'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.danger,
+                  side: const BorderSide(color: AppTheme.danger),
+                ),
               ),
             ],
           ),

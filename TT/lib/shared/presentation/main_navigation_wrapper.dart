@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MainNavigationWrapper extends StatelessWidget {
   final Widget child;
@@ -15,7 +16,9 @@ class MainNavigationWrapper extends StatelessWidget {
       body: child,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _calculateSelectedIndex(context),
-        onDestinationSelected: (index) => _onItemTapped(index, context),
+        onDestinationSelected: (index) {
+          _onItemTapped(index, context);
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.map_outlined),
@@ -51,10 +54,17 @@ class MainNavigationWrapper extends StatelessWidget {
     return 0;
   }
 
-  void _onItemTapped(int index, BuildContext context) {
+  Future<void> _onItemTapped(int index, BuildContext context) async {
+    final current = GoRouterState.of(context).matchedLocation;
     switch (index) {
       case 0:
-        context.go('/map');
+        // Returning to the map from the Expeditions tab drops the expedition
+        // picked with "Use for navigation" so the map is not stuck to it.
+        if (current.startsWith('/groups')) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('active_group_id');
+        }
+        if (context.mounted) context.go('/map');
         break;
       case 1:
         context.go('/groups');

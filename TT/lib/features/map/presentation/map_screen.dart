@@ -13,6 +13,7 @@ import '../data/location_tracking_service.dart';
 import '../data/off_path_calculator.dart';
 import '../../emergency/data/emergency_service.dart';
 import '../../social/data/deep_link_service.dart';
+import '../../../core/app_theme.dart';
 import '../../../core/socket_service.dart';
 import '../../auth/data/auth_service.dart';
 import '../../routes/data/route_recording_service.dart';
@@ -203,8 +204,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     // Membership/status/route changes: refresh the roster live, and eject if
     // this device is removed from the expedition.
     socketSvc.groupEventStream.listen((data) {
-      if (data['event'] == 'group_removed') {
-        _handleRemovedFromGroup();
+      final event = data['event'];
+      if (event == 'group_removed' || event == 'group_deleted') {
+        _handleRemovedFromGroup(deleted: event == 'group_deleted');
         return;
       }
       if (_groupId != null && data['groupId']?.toString() == _groupId) {
@@ -213,7 +215,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     });
   }
 
-  Future<void> _handleRemovedFromGroup() async {
+  Future<void> _handleRemovedFromGroup({bool deleted = false}) async {
     final prefs = await SharedPreferences.getInstance();
     final groupId = _groupId;
     await prefs.remove('active_group_id');
@@ -224,7 +226,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ref.read(socketServiceProvider).leaveGroup(groupId);
     }
     if (!mounted) return;
-    _showSnack('You were removed from this expedition.');
+    _showSnack(
+      deleted
+          ? 'This expedition was deleted.'
+          : 'You were removed from this expedition.',
+    );
     context.go('/groups');
   }
 
@@ -268,6 +274,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Member-facing error toast shown when they drift off the expedition route.
+  /// The red line drawn back to the route is the shortest path to it.
+  void _showOffPathToast(double distanceMeters) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'You are off the route by ${distanceMeters.toStringAsFixed(0)} m. '
+            'Follow the red line back to the path.',
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.danger,
+          duration: const Duration(seconds: 6),
+        ),
+      );
   }
 
   /// Watches peer heartbeats and flags anyone quiet for longer than the
@@ -683,8 +708,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               setState(() {
                   _isOffPath = result.isOffPath;
               });
-              // Alert only when the member first drifts off the route.
-              if (result.isOffPath) {
+              // Alert members (never the guide) only on the first drift off an
+              // ongoing expedition's route. The guide still sees the shortest
+              // return path but is not alerted.
+              final isMember = _userRole != 'GUIDE';
+              if (result.isOffPath && isMember && _groupStatus == 'ONGOING') {
+                _showOffPathToast(result.distanceMeters);
                 OffPathCalculator.triggerAlert(result.distanceMeters);
               }
           }

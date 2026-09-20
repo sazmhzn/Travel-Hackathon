@@ -287,6 +287,35 @@ describe('GroupsService Integration', () => {
     ).rejects.toThrow(/guide/i);
   });
 
+  it('should let a guide delete an expedition but not a member', async () => {
+    const guide = await AuthService.register({
+      email: `guide-${Date.now()}@delete.com`,
+      password: 'Password123!',
+      name: 'Delete Guide',
+      role: 'GUIDE',
+    });
+    const member = await AuthService.register({
+      email: `member-${Date.now()}@delete.com`,
+      password: 'Password123!',
+      name: 'Delete Member',
+      role: 'MEMBER',
+    });
+
+    const group = await GroupsService.createGroup({
+      name: 'Doomed Expedition',
+      createdBy: guide.id,
+    });
+    await GroupsService.joinGroupByInviteCode(member.id, group.invite_code);
+
+    await expect(
+      GroupsService.deleteGroup(member.id, group.id)
+    ).rejects.toThrow(/guide/i);
+
+    await GroupsService.deleteGroup(guide.id, group.id);
+    expect(await GroupsService.getGroupById(group.id)).toBeNull();
+    expect((await GroupsService.getGroupMembers(group.id)).length).toBe(0);
+  });
+
   it('should browse only pending and completed expeditions', async () => {
     const guide = await AuthService.register({
       email: `guide-${Date.now()}@browse.com`,

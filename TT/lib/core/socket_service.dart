@@ -106,6 +106,7 @@ class SocketService {
       'group:member_removed': 'member_removed',
       'group:updated': 'group_updated',
       'group:removed': 'group_removed',
+      'group:deleted': 'group_deleted',
       'route:recorded': 'route_recorded',
     }.entries) {
       _socket!.on(entry.key, (data) {

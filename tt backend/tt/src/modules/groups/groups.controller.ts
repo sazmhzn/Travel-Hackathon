@@ -256,6 +256,35 @@ export async function groupRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // 5d. Delete an Expedition (Guide only)
+  fastify.delete(
+    '/:groupId',
+    {
+      schema: {
+        description: 'Permanently delete an expedition (guide only)',
+        tags: ['Groups'],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['groupId'],
+          properties: {
+            groupId: { type: 'string' },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const params = request.params as { groupId: string };
+        await GroupsService.deleteGroup(request.user.id, params.groupId);
+        return reply.send({ message: 'Expedition deleted' });
+      } catch (err: any) {
+        const status = /guide/i.test(err.message) ? 403 : 400;
+        return reply.status(status).send({ error: 'DeleteGroupFailed', message: err.message });
+      }
+    }
+  );
+
   // 6. Get Group Members
   fastify.get(
     '/:groupId/members',

@@ -689,6 +689,38 @@ export class GroupsService {
     broadcastToUser(memberUserId, 'group:removed', { groupId });
   }
 
+  /**
+   * Permanently deletes an expedition. Only a GUIDE member of the group may
+   * delete it. Group members and dependent records cascade on delete; recorded
+   * routes are kept (their group_id is set to NULL).
+   */
+  static async deleteGroup(userId: string, groupId: string): Promise<void> {
+    if (!(await this.isUserGuideInGroup(userId, groupId))) {
+      throw new Error('Only the expedition guide can delete it');
+    }
+
+    const members = await this.getGroupMembers(groupId);
+
+    try {
+      const res = await query('DELETE FROM groups WHERE id = $1', [groupId]);
+      if (res.rowCount === 0) throw new Error('Group not found');
+    } catch (err: any) {
+      if (!isDatabaseOffline(err)) throw err;
+      if (!inMemoryGroups.has(groupId)) throw new Error('Group not found');
+      inMemoryGroups.delete(groupId);
+      inMemoryGroupMembers.delete(groupId);
+    }
+
+    // Tell everyone still connected the expedition is gone, and push a direct
+    // event to each member so screens not in the group room also react.
+    broadcastToGroup(groupId, 'group:deleted', { groupId });
+    for (const member of members) {
+      if (member.user_id !== userId) {
+        broadcastToUser(member.user_id, 'group:removed', { groupId });
+      }
+    }
+  }
+
   static async getUserGroups(userId: string, role?: 'GUIDE' | 'MEMBER' | 'ADMIN'): Promise<Group[]> {
     let groups: Group[];
     try {
