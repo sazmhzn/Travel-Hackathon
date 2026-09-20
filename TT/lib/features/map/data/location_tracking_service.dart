@@ -55,9 +55,11 @@ class LocationTrackingService {
       print("Received location from native: Lat: ${locationData['latitude']}, Lng: ${locationData['longitude']}, Acc: ${locationData['accuracy']}");
       _locationStreamController.add(locationData);
 
-      // Emit to WebSocket
+      // Emit to WebSocket only while part of an expedition. If we were removed
+      // (or none is active) there is nothing meaningful to broadcast.
       final prefs = await SharedPreferences.getInstance();
-      final groupId = prefs.getString('active_group_id') ?? 'group123'; 
+      final groupId = prefs.getString('active_group_id');
+      if (groupId == null || groupId.isEmpty) return;
 
       _ref.read(socketServiceProvider).emitLocationUpdate(
         groupId,

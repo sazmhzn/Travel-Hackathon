@@ -6,6 +6,18 @@ export let redisClient: Redis;
 export let redisSubscriber: Redis;
 export let isRedisConnected = false;
 
+// Haversine distance in kilometers, used by the in-memory geo fallback.
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
 // In-memory fallback cache if Redis instance is not available
 class InMemoryRedisMock {
   private store = new Map<string, any>();
@@ -56,6 +68,27 @@ class InMemoryRedisMock {
       const pos = geoMap.get(m);
       return pos ? [pos.lng.toString(), pos.lat.toString()] : null;
     });
+  }
+
+  async georadius(
+    key: string,
+    longitude: number,
+    latitude: number,
+    radius: number,
+    unit: string,
+    ...args: any[]
+  ): Promise<any[]> {
+    const geoMap = this.store.get(key) as Map<string, { lng: number; lat: number }> | undefined;
+    if (!geoMap) return [];
+    const radiusKm = unit === 'm' ? radius / 1000 : radius;
+    const withDist = args.some((a) => String(a).toUpperCase() === 'WITHDIST');
+    const hits: Array<{ member: string; distanceKm: number }> = [];
+    for (const [member, pos] of geoMap.entries()) {
+      const distanceKm = haversineKm(latitude, longitude, pos.lat, pos.lng);
+      if (distanceKm <= radiusKm) hits.push({ member, distanceKm });
+    }
+    hits.sort((a, b) => a.distanceKm - b.distanceKm);
+    return hits.map((h) => (withDist ? [h.member, h.distanceKm.toFixed(4)] : h.member));
   }
 
   async del(...keys: string[]): Promise<number> {

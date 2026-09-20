@@ -8,20 +8,23 @@ final apiClientProvider = Provider((ref) => ApiClient());
 /// Overridable at build time:
 /// `flutter run --dart-define=API_BASE_URL=http://192.168.1.20:3000/api`
 ///
-/// The default targets the Android emulator host loopback (10.0.2.2).
-/// For a physical device over USB, run `adb reverse tcp:3000 tcp:3000` and
-/// pass `--dart-define=API_BASE_URL=http://127.0.0.1:3000/api`.
-const String _apiBaseUrl = String.fromEnvironment(
+/// The default targets the backend host machine on the local network.
+/// For a physical device, both must be on the same Wi-Fi/LAN.
+const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://10.0.2.2:3000/api',
+  defaultValue: 'http://192.168.110.73:3000/api',
 );
 
 class ApiClient {
+  /// Invoked when the server rejects the token (401) so the app can return to
+  /// the login screen. Wired up in main.dart.
+  static VoidCallback? onUnauthorized;
+
   late final Dio _dio;
 
   ApiClient() {
     _dio = Dio(BaseOptions(
-      baseUrl: _apiBaseUrl,
+      baseUrl: apiBaseUrl,
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
     ));
@@ -47,8 +50,14 @@ class ApiClient {
           }
           return handler.next(options);
         },
-        onError: (DioException e, handler) {
-          // Handle global errors here (e.g., 401 Unauthorized)
+        onError: (DioException e, handler) async {
+          // Expired/invalid token: clear it and send the user back to login
+          // instead of silently returning empty data everywhere.
+          if (e.response?.statusCode == 401) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.remove('jwt_token');
+            ApiClient.onUnauthorized?.call();
+          }
           return handler.next(e);
         }
       )

@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import { query } from '../../config/database.js';
+import { env } from '../../config/env.js';
+import { broadcastToGroup, broadcastToUser } from '../../sockets/gateway.js';
 import { AuthService } from '../auth/auth.service.js';
 import { TelemetryService } from '../telemetry/telemetry.service.js';
 
@@ -15,6 +17,8 @@ export interface Group {
   created_at?: string;
   guide_name?: string;
   is_member?: boolean;
+  hotspot_ssid?: string | null;
+  hotspot_password?: string | null;
 }
 
 export interface GroupMember {
@@ -27,6 +31,8 @@ export interface GroupMember {
   email?: string;
   phone?: string;
   fcm_token?: string;
+  device_id?: string | null;
+  bluetooth_name?: string | null;
 }
 
 export interface GroupMemberStatus extends GroupMember {
@@ -46,11 +52,12 @@ export interface GroupDetails {
   onlineCount: number;
   missingCount: number;
   members: GroupMemberStatus[];
+  missingThresholdSeconds: number;
 }
 
 // A member is considered "missing" when no telemetry ping has been received
-// within this window.
-const MISSING_THRESHOLD_MS = 10 * 60 * 1000;
+// within this window. Configurable via MISSING_THRESHOLD_SECONDS.
+const missingThresholdMs = (): number => env.MISSING_THRESHOLD_SECONDS * 1000;
 
 // In-memory fallback stores for offline dev/test environments
 export const inMemoryGroups = new Map<string, Group>();
@@ -242,6 +249,7 @@ export class GroupsService {
         );
       }
 
+      broadcastToGroup(group.id, 'group:member_joined', { groupId: group.id, userId });
       return group;
     } catch (err: any) {
       if (isDatabaseOffline(err)) {
@@ -261,6 +269,7 @@ export class GroupsService {
           members.push({ id: `gm-${Date.now()}`, group_id: matched.id, user_id: userId, role: 'MEMBER' });
           inMemoryGroupMembers.set(matched.id, members);
         }
+        broadcastToGroup(matched.id, 'group:member_joined', { groupId: matched.id, userId });
         return matched;
       }
       throw err;
@@ -283,6 +292,7 @@ export class GroupsService {
         inMemoryGroupMembers.set(groupId, members);
       }
     }
+    broadcastToGroup(groupId, 'group:member_joined', { groupId, userId });
   }
 
   static async getOwnedGroups(userId: string): Promise<Group[]> {
@@ -317,22 +327,76 @@ export class GroupsService {
       await this.assertNoOtherOngoing(userId, groupId);
     }
 
+    // Reactivating a completed expedition gives it a clean slate: all members
+    // (and co-guides) are removed, leaving only the owning guide.
+    const current = await this.getGroupById(groupId);
+    if (!current) {
+      throw new Error('Group not found');
+    }
+    if (current.status === 'COMPLETED' && status === 'PENDING') {
+      await this.clearMembersForReactivation(groupId, current.created_by);
+    }
+
     try {
       const res = await query(
-        `UPDATE groups SET status = $2, updated_at = CURRENT_TIMESTAMP
+        `UPDATE groups
+         SET status = $2::text,
+             hotspot_ssid = CASE WHEN $2::text = 'COMPLETED' THEN NULL ELSE hotspot_ssid END,
+             hotspot_password = CASE WHEN $2::text = 'COMPLETED' THEN NULL ELSE hotspot_password END,
+             updated_at = CURRENT_TIMESTAMP
          WHERE id = $1
-         RETURNING id, name, description, invite_code, created_by, status, created_at`,
+         RETURNING *`,
         [groupId, status]
       );
       if (res.rowCount === 0) {
         throw new Error('Group not found');
       }
+      broadcastToGroup(groupId, 'group:updated', { groupId });
       return res.rows[0];
     } catch (err: any) {
       if (!isDatabaseOffline(err)) throw err;
       const group = inMemoryGroups.get(groupId);
       if (!group) throw new Error('Group not found');
       group.status = status;
+      if (status === 'COMPLETED') {
+        group.hotspot_ssid = null;
+        group.hotspot_password = null;
+      }
+      broadcastToGroup(groupId, 'group:updated', { groupId });
+      return group;
+    }
+  }
+
+  /**
+   * Stores the guide's hotspot credentials for an expedition so members can
+   * join the same local network when there is no internet. Guide only.
+   */
+  static async setHotspot(
+    userId: string,
+    groupId: string,
+    ssid: string,
+    password: string
+  ): Promise<Group> {
+    if (!(await this.isUserGuideInGroup(userId, groupId))) {
+      throw new Error('Only the expedition guide can set the hotspot');
+    }
+
+    try {
+      const res = await query(
+        `UPDATE groups
+         SET hotspot_ssid = $2, hotspot_password = $3, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING *`,
+        [groupId, ssid, password]
+      );
+      if (res.rowCount === 0) throw new Error('Group not found');
+      return res.rows[0];
+    } catch (err: any) {
+      if (!isDatabaseOffline(err)) throw err;
+      const group = inMemoryGroups.get(groupId);
+      if (!group) throw new Error('Group not found');
+      group.hotspot_ssid = ssid;
+      group.hotspot_password = password;
       return group;
     }
   }
@@ -359,6 +423,30 @@ export class GroupsService {
       if (conflict) {
         throw new Error('Complete the ongoing expedition first');
       }
+    }
+  }
+
+  /**
+   * Removes every member and co-guide from an expedition, keeping only the
+   * owning guide. Used when a completed expedition is reactivated so it starts
+   * fresh for a new roster.
+   */
+  private static async clearMembersForReactivation(
+    groupId: string,
+    ownerId: string
+  ): Promise<void> {
+    try {
+      await query(
+        `DELETE FROM group_members WHERE group_id = $1 AND user_id <> $2`,
+        [groupId, ownerId]
+      );
+    } catch (err: any) {
+      if (!isDatabaseOffline(err)) throw err;
+      const list = inMemoryGroupMembers.get(groupId) || [];
+      inMemoryGroupMembers.set(
+        groupId,
+        list.filter((m) => m.user_id === ownerId)
+      );
     }
   }
 
@@ -438,7 +526,11 @@ export class GroupsService {
     const enriched: GroupMemberStatus[] = members.map((member) => {
       const live: any = liveByUser.get(member.user_id);
       const lastSeen = live?.recordedAt ? new Date(live.recordedAt) : null;
-      const isMissing = !lastSeen || now - lastSeen.getTime() > MISSING_THRESHOLD_MS;
+      // Guides are never "missing": a quiet guide is simply out of signal /
+      // off the planned path, not lost. Only members are tracked as missing.
+      const isMissing =
+        member.role !== 'GUIDE' &&
+        (!lastSeen || now - lastSeen.getTime() > missingThresholdMs());
       return {
         ...member,
         isMissing,
@@ -463,6 +555,7 @@ export class GroupsService {
       onlineCount: enriched.filter((m) => !m.isMissing).length,
       missingCount: enriched.filter((m) => m.isMissing).length,
       members: enriched,
+      missingThresholdSeconds: env.MISSING_THRESHOLD_SECONDS,
     };
   }
 
@@ -479,7 +572,8 @@ export class GroupsService {
   static async getGroupMembers(groupId: string): Promise<GroupMember[]> {
     try {
       const res = await query(
-        `SELECT gm.id, gm.group_id, gm.user_id, gm.role, gm.joined_at, u.name, u.email, u.phone, u.fcm_token
+        `SELECT gm.id, gm.group_id, gm.user_id, gm.role, gm.joined_at,
+                u.name, u.email, u.phone, u.fcm_token, u.device_id, u.bluetooth_name
          FROM group_members gm
          JOIN users u ON gm.user_id = u.id
          WHERE gm.group_id = $1
@@ -500,6 +594,8 @@ export class GroupsService {
           email: u?.email,
           phone: u?.phone,
           fcm_token: u?.fcm_token,
+          device_id: u?.device_id,
+          bluetooth_name: u?.bluetooth_name,
         });
       }
       return enriched;
@@ -542,6 +638,7 @@ export class GroupsService {
         [groupId, data.name ?? null, data.description ?? null]
       );
       if (res.rowCount === 0) throw new Error('Group not found');
+      broadcastToGroup(groupId, 'group:updated', { groupId });
       return res.rows[0];
     } catch (err: any) {
       if (!isDatabaseOffline(err)) throw err;
@@ -549,6 +646,7 @@ export class GroupsService {
       if (!group) throw new Error('Group not found');
       if (data.name !== undefined) group.name = data.name;
       if (data.description !== undefined) group.description = data.description;
+      broadcastToGroup(groupId, 'group:updated', { groupId });
       return group;
     }
   }
@@ -585,6 +683,41 @@ export class GroupsService {
         groupId,
         list.filter((m) => m.user_id !== memberUserId)
       );
+    }
+
+    broadcastToGroup(groupId, 'group:member_removed', { groupId, userId: memberUserId });
+    broadcastToUser(memberUserId, 'group:removed', { groupId });
+  }
+
+  /**
+   * Permanently deletes an expedition. Only a GUIDE member of the group may
+   * delete it. Group members and dependent records cascade on delete; recorded
+   * routes are kept (their group_id is set to NULL).
+   */
+  static async deleteGroup(userId: string, groupId: string): Promise<void> {
+    if (!(await this.isUserGuideInGroup(userId, groupId))) {
+      throw new Error('Only the expedition guide can delete it');
+    }
+
+    const members = await this.getGroupMembers(groupId);
+
+    try {
+      const res = await query('DELETE FROM groups WHERE id = $1', [groupId]);
+      if (res.rowCount === 0) throw new Error('Group not found');
+    } catch (err: any) {
+      if (!isDatabaseOffline(err)) throw err;
+      if (!inMemoryGroups.has(groupId)) throw new Error('Group not found');
+      inMemoryGroups.delete(groupId);
+      inMemoryGroupMembers.delete(groupId);
+    }
+
+    // Tell everyone still connected the expedition is gone, and push a direct
+    // event to each member so screens not in the group room also react.
+    broadcastToGroup(groupId, 'group:deleted', { groupId });
+    for (const member of members) {
+      if (member.user_id !== userId) {
+        broadcastToUser(member.user_id, 'group:removed', { groupId });
+      }
     }
   }
 

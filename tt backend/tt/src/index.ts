@@ -6,6 +6,7 @@ import { runMigrations } from './database/migrator.js';
 import { initializeRedis } from './config/redis.js';
 import { ensureBucketExists } from './config/minio.js';
 import { initializeSocketIO } from './sockets/gateway.js';
+import { initializeFirebase } from './config/firebase.js';
 import { startDestinationWorker, stopDestinationWorker } from './modules/destination-agent/workers/destination-generation.worker.js';
 
 async function startServer() {
@@ -14,6 +15,9 @@ async function startServer() {
 
     // 1. Initialize Redis connection
     initializeRedis();
+
+    // 1b. Initialize Firebase Admin (FCM push for emergency alerts)
+    initializeFirebase();
 
     // 2. Check Database & Auto-Run Migrations if connected
     const dbConnected = await checkDatabaseConnection();

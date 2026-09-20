@@ -18,20 +18,43 @@ class MeshNetworkService {
 
   StreamSubscription? _meshSubscription;
 
+  final _peerTelemetryController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _hotspotCredentialsController =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  /// Live telemetry received directly from peers over the P2P mesh (works
+  /// without internet or a backend).
+  Stream<Map<String, dynamic>> get peerTelemetryStream =>
+      _peerTelemetryController.stream;
+
+  /// Hotspot credentials broadcast by the guide when the internet drops.
+  Stream<Map<String, dynamic>> get hotspotCredentialsStream =>
+      _hotspotCredentialsController.stream;
+
   MeshNetworkService(this._ref);
 
-  Future<void> startAdvertising(String userId) async {
+  /// Advertises this device under [identifier] so peers can find it by name.
+  Future<void> startAdvertising(String identifier) async {
     try {
-      await _methodChannel.invokeMethod('startAdvertising', {'userId': userId});
+      await _methodChannel.invokeMethod('startAdvertising', {
+        'userId': identifier,
+        'identifier': identifier,
+      });
       _startListeningForPayloads();
     } on PlatformException catch (e) {
       print("Failed to start mesh advertising: '${e.message}'.");
     }
   }
 
-  Future<void> startDiscovery() async {
+  /// Discovers nearby peers. When [targetIdentifier] is provided only that
+  /// specific device is searched for (e.g. a missing expedition member),
+  /// instead of connecting to every nearby endpoint.
+  Future<void> startDiscovery({String? targetIdentifier}) async {
     try {
-      await _methodChannel.invokeMethod('startDiscovery');
+      await _methodChannel.invokeMethod('startDiscovery', {
+        'targetIdentifier': targetIdentifier,
+      });
       _startListeningForPayloads();
     } on PlatformException catch (e) {
       print("Failed to start mesh discovery: '${e.message}'.");
@@ -80,6 +103,18 @@ class MeshNetworkService {
   Future<void> _handleIncomingPayload(String jsonPayload) async {
     try {
       final data = jsonDecode(jsonPayload) as Map<String, dynamic>;
+
+      // Control messages (not telemetry) are routed to their own listeners.
+      final type = data['type']?.toString();
+      if (type == 'hotspot_credentials') {
+        _hotspotCredentialsController.add(data);
+        return;
+      }
+
+      // Surface the peer's live position immediately (works fully offline).
+      if (data['lat'] != null && data['lng'] != null) {
+        _peerTelemetryController.add(data);
+      }
 
       // Parse to our Isar DB Record
       final record = OfflineTelemetryRecord(

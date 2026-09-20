@@ -46,7 +46,11 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -f http://localhost:9000/minio/health/live || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -100,9 +104,11 @@ services:
       MINIO_BUCKET: travel-media
       JWT_SECRET: super-secret-travel-emergency-jwt-key-32chars-min
       DESTINATION_AGENT_ENABLED: "true"
-      GOOGLE_GEMINI_API_KEY: ""
-      GOOGLE_PLACES_API_KEY: ""
-      GOOGLE_ROUTES_API_KEY: ""
+      MISSING_THRESHOLD_SECONDS: "5"
+      SOS_RADIUS_KM: "20"
+      GOOGLE_GEMINI_API_KEY: "${GOOGLE_GEMINI_API_KEY}"
+      GOOGLE_PLACES_API_KEY: "${GOOGLE_PLACES_API_KEY}"
+      GOOGLE_ROUTES_API_KEY: "${GOOGLE_ROUTES_API_KEY}"
 
 volumes:
   postgres_data:

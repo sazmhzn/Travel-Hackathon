@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/api_client.dart';
 import 'core/app_theme.dart';
 import 'core/router.dart';
 import 'features/map/data/off_path_calculator.dart';
@@ -10,12 +11,11 @@ void main() async {
   await OffPathCalculator.initializeNotifications();
   BackgroundSyncService.initialize();
   BackgroundSyncService.schedulePeriodicSync();
-  
-  runApp(
-    const ProviderScope(
-      child: MyApp(),
-    ),
-  );
+
+  // A rejected/expired token drops the user back to the login screen.
+  ApiClient.onUnauthorized = () => router.go('/login');
+
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
@@ -27,6 +27,7 @@ class MyApp extends StatelessWidget {
       title: 'Travel & Emergency App',
       theme: AppTheme.light,
       routerConfig: router,
+      debugShowCheckedModeBanner: false,
     );
   }
 }

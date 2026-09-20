@@ -19,6 +19,8 @@ export async function authRoutes(fastify: FastifyInstance) {
             name: { type: 'string', minLength: 2 },
             phone: { type: 'string' },
             role: { type: 'string', enum: ['GUIDE', 'MEMBER'], default: 'MEMBER' },
+            deviceId: { type: 'string', maxLength: 255 },
+            bluetoothName: { type: 'string', maxLength: 255 },
           },
         },
       },
@@ -51,6 +53,8 @@ export async function authRoutes(fastify: FastifyInstance) {
           properties: {
             email: { type: 'string', format: 'email' },
             password: { type: 'string' },
+            deviceId: { type: 'string', maxLength: 255 },
+            bluetoothName: { type: 'string', maxLength: 255 },
           },
         },
       },

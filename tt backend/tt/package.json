@@ -37,6 +37,7 @@
     "bullmq": "^6.3.8",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1",
+    "firebase-admin": "^14.4.0",
     "gpxparser": "^3.0.8",
     "ioredis": "^5.6.0",
     "jsonwebtoken": "^9.0.2",

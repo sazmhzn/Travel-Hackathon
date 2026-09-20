@@ -79,6 +79,22 @@ class GroupService {
     }
   }
 
+  /// Returns every route recorded within an expedition.
+  Future<List<Map<String, dynamic>>> getGroupRoutes(String groupId) async {
+    try {
+      final response = await _client.get('/routes/group/$groupId');
+      final data = response.data;
+      final list = data is Map<String, dynamic> ? data['routes'] : data;
+      if (list is List) {
+        return list.cast<Map<String, dynamic>>();
+      }
+      return [];
+    } catch (e) {
+      print('Get group routes error: $e');
+      return [];
+    }
+  }
+
   Future<Map<String, dynamic>?> getGroupDetails(String groupId) async {
     try {
       final response = await _client.get('/groups/$groupId');
@@ -119,6 +135,25 @@ class GroupService {
     }
   }
 
+  /// Stores the guide's offline hotspot credentials so members can join the
+  /// expedition's local network. Guide only.
+  Future<bool> setHotspot(
+    String groupId, {
+    required String ssid,
+    required String password,
+  }) async {
+    try {
+      final response = await _client.patch(
+        '/groups/$groupId/hotspot',
+        data: {'ssid': ssid, 'password': password},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Set hotspot error: $e');
+      return false;
+    }
+  }
+
   /// Updates an expedition's title and description. Guide only.
   Future<Map<String, dynamic>?> updateGroup(
     String groupId, {
@@ -156,6 +191,23 @@ class GroupService {
     } catch (e) {
       print('Remove member error: $e');
       return 'Could not remove this member.';
+    }
+  }
+
+  /// Permanently deletes an expedition. Guide only. Returns an error message
+  /// on failure, otherwise `null`.
+  Future<String?> deleteGroup(String groupId) async {
+    try {
+      final response = await _client.delete('/groups/$groupId');
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        return null;
+      }
+      return 'Could not delete this expedition.';
+    } on DioException catch (e) {
+      return _messageFromDio(e) ?? 'Could not delete this expedition.';
+    } catch (e) {
+      print('Delete group error: $e');
+      return 'Could not delete this expedition.';
     }
   }
 

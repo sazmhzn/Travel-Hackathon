@@ -50,4 +50,38 @@ export async function emergencyRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  // Resolve / clear an active Rescue Mode alert (any member of the group).
+  fastify.post(
+    '/resolve',
+    {
+      schema: {
+        description: 'Resolve active Rescue Mode alerts for a group (optionally one user)',
+        tags: ['Emergency'],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['groupId'],
+          properties: {
+            groupId: { type: 'string' },
+            userId: { type: 'string' },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = request.body as { groupId: string; userId?: string };
+        const result = await EmergencyService.resolveEmergency(
+          body.groupId,
+          body.userId,
+          request.user.id
+        );
+        return reply.status(200).send({ success: true, ...result });
+      } catch (err: any) {
+        const status = /member/i.test(err.message) ? 403 : 400;
+        return reply.status(status).send({ error: 'EmergencyResolveFailed', message: err.message });
+      }
+    }
+  );
 }

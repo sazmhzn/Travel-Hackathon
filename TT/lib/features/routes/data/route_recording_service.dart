@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/database_provider.dart';
 import '../../../core/api_client.dart';
 import 'models/draft_route.dart';
@@ -39,10 +40,25 @@ class RouteRecordingService {
     return pointRows.map(RoutePoint.fromMap).toList();
   }
 
-  Future<void> startRecording({double? initialLat, double? initialLng}) async {
+  Future<void> startRecording({
+    double? initialLat,
+    double? initialLng,
+    String? groupId,
+  }) async {
     final db = await _ref.read(databaseProvider.future);
 
-    final draft = DraftRoute(startTime: DateTime.now(), isCompleted: false);
+    // Tag the recording with the expedition it belongs to, if one is active.
+    final prefs = await SharedPreferences.getInstance();
+    final activeGroupId = groupId ?? prefs.getString('active_group_id');
+    if (groupId != null && groupId.isNotEmpty) {
+      await prefs.setString('active_group_id', groupId);
+    }
+
+    final draft = DraftRoute(
+      startTime: DateTime.now(),
+      groupId: (activeGroupId?.isEmpty ?? true) ? null : activeGroupId,
+      isCompleted: false,
+    );
     _activeRouteId = await db.insert('draft_routes', draft.toMap());
 
     // Immediately add the first point if provided
@@ -105,6 +121,20 @@ class RouteRecordingService {
     await syncRoute(routeId);
   }
 
+  /// Retries every completed-but-unsynced draft route. Called on app start and
+  /// from the background sync worker so offline recordings eventually reach the
+  /// server instead of being lost.
+  Future<void> syncPendingRoutes() async {
+    final db = await _ref.read(databaseProvider.future);
+    final rows = await db.query(
+      'draft_routes',
+      where: 'isCompleted = 1 AND isSynced = 0',
+    );
+    for (final row in rows) {
+      await syncRoute(row['id'] as int);
+    }
+  }
+
   Future<void> syncRoute(int draftId) async {
     final db = await _ref.read(databaseProvider.future);
     final draftRows = await db.query(
@@ -138,6 +168,7 @@ class RouteRecordingService {
         "description": draft.description,
         "activity_type": draft.activityType,
         "visibility": draft.visibility,
+        if (draft.groupId != null) "group_id": draft.groupId,
         "geoJson": geoJson,
       });
 

@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:workmanager/workmanager.dart';
 import '../features/mesh/data/sync_manager.dart';
+import '../features/routes/data/route_recording_service.dart';
 
 @pragma('vm:entry-point')
 void callbackDispatcher() {
@@ -14,6 +15,8 @@ void callbackDispatcher() {
     try {
       final syncManager = container.read(syncManagerProvider);
       await syncManager.syncMeshTelemetry();
+      // Retry any routes recorded while offline.
+      await container.read(routeRecordingServiceProvider).syncPendingRoutes();
       return true;
     } catch (e) {
       print("Background sync failed: $e");

@@ -18,7 +18,7 @@ class OffPathCalculator {
   static final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
   static Future<void> initializeNotifications() async {
-    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('ic_launcher');
+    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('ic_notification');
     const InitializationSettings initializationSettings = InitializationSettings(android: initializationSettingsAndroid);
     await flutterLocalNotificationsPlugin.initialize(
       settings: initializationSettings,
@@ -37,10 +37,6 @@ class OffPathCalculator {
 
     final bool isOff = distanceMeters > thresholdMeters;
 
-    if (isOff) {
-      _triggerAlert(distanceMeters);
-    }
-
     // Find the nearest point on the line to draw a return path
     final nearestFeature = turf.nearestPointOnLine(lineString, currentPoint);
     final nearestPos = nearestFeature.geometry?.coordinates;
@@ -57,13 +53,16 @@ class OffPathCalculator {
     );
   }
 
-  static Future<void> _triggerAlert(num distance) async {
+  /// Shows the "off path" notification. Call this only on the transition to
+  /// off-path, not on every location update, to avoid notification spam.
+  static Future<void> triggerAlert(num distance) async {
     const AndroidNotificationDetails androidPlatformChannelSpecifics = AndroidNotificationDetails(
       'off_path_channel',
       'Off Path Alerts',
       channelDescription: 'Notifications for when you stray off the route',
       importance: Importance.max,
       priority: Priority.high,
+      icon: 'ic_notification',
       ticker: 'ticker',
     );
     const NotificationDetails platformChannelSpecifics = NotificationDetails(android: androidPlatformChannelSpecifics);

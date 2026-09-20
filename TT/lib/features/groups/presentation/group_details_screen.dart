@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/app_theme.dart';
+import '../../../core/socket_service.dart';
 import '../data/group_service.dart';
 import '../../auth/data/auth_service.dart';
 import 'group_widgets.dart';
@@ -18,22 +21,72 @@ class GroupDetailsScreen extends ConsumerStatefulWidget {
 
 class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
   Map<String, dynamic>? _details;
+  List<Map<String, dynamic>> _routes = [];
   bool _isLoading = true;
   bool _isBusy = false;
   String? _currentUserId;
   bool _isCurrentUserGuide = false;
+  StreamSubscription? _groupEventSub;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _setupRealtime();
+  }
+
+  @override
+  void dispose() {
+    _groupEventSub?.cancel();
+    super.dispose();
+  }
+
+  /// Refetches on membership/status/route changes from other devices, so the
+  /// page never shows stale members or routes.
+  void _setupRealtime() {
+    final socket = ref.read(socketServiceProvider);
+    socket.connect();
+    socket.joinGroup(widget.groupId);
+    _groupEventSub = socket.groupEventStream.listen((data) {
+      if (data['groupId']?.toString() != widget.groupId) return;
+      final event = data['event'];
+      if (event == 'group_removed' || event == 'group_deleted') {
+        _handleRemoved(deleted: event == 'group_deleted');
+      } else {
+        _load();
+      }
+    });
+  }
+
+  Future<void> _handleRemoved({bool deleted = false}) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString('active_group_id') == widget.groupId) {
+      await prefs.remove('active_group_id');
+      await prefs.remove('roster_${widget.groupId}');
+      await prefs.remove('group_status_${widget.groupId}');
+      await prefs.remove('missing_threshold_${widget.groupId}');
+    }
+    if (!mounted) return;
+    showAppSnack(
+      context,
+      deleted
+          ? 'This expedition was deleted.'
+          : 'You were removed from this expedition.',
+      error: true,
+    );
+    context.go('/groups');
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
     final profile = await ref.read(authServiceProvider).getProfile();
     final details =
         await ref.read(groupServiceProvider).getGroupDetails(widget.groupId);
-    if (!mounted) return;
+    final routes =
+        await ref.read(groupServiceProvider).getGroupRoutes(widget.groupId);
+    // Ignore a slower, older response that would overwrite fresh data.
+    if (!mounted || generation != _loadGeneration) return;
     final members = (details?['members'] as List?) ?? [];
     final currentId = profile?['id']?.toString();
     setState(() {
@@ -41,6 +94,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
       _isCurrentUserGuide = members.any((m) =>
           m['user_id']?.toString() == currentId && m['role'] == 'GUIDE');
       _details = details;
+      _routes = routes;
       _isLoading = false;
     });
   }
@@ -56,12 +110,12 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
       case GroupStatusUpdate.success:
         await _load();
         if (mounted) {
-          showAppSnack(
-            context,
-            status == 'ONGOING'
-                ? 'Expedition started.'
-                : 'Expedition completed.',
-          );
+          final message = switch (status) {
+            'ONGOING' => 'Expedition started.',
+            'COMPLETED' => 'Expedition completed.',
+            _ => 'Expedition reactivated. Members were cleared.',
+          };
+          showAppSnack(context, message);
         }
         break;
       case GroupStatusUpdate.ongoingExists:
@@ -92,6 +146,34 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmReactivate() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.restart_alt, size: 36),
+        title: const Text('Reactivate expedition?'),
+        content: const Text(
+          'This expedition will return to pending and all members will be '
+          'removed. You can start it again with a fresh roster.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Reactivate'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _changeStatus('PENDING');
+    }
   }
 
   Future<void> _editExpedition() async {
@@ -193,8 +275,6 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
         ),
       ),
     );
-    nameController.dispose();
-    descController.dispose();
   }
 
   Future<void> _confirmRemoveMember(Map<String, dynamic> member) async {
@@ -237,12 +317,60 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     }
   }
 
+  Future<void> _confirmDelete() async {
+    final name =
+        _details?['group']?['name']?.toString() ?? 'this expedition';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.delete_forever, size: 36, color: AppTheme.danger),
+        title: const Text('Delete expedition?'),
+        content: Text(
+          'This permanently deletes "$name" and removes every member. '
+          'Recorded routes are kept. This cannot be undone.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _isBusy = true);
+    final error = await ref.read(groupServiceProvider).deleteGroup(widget.groupId);
+    if (!mounted) return;
+    setState(() => _isBusy = false);
+    if (error == null) {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString('active_group_id') == widget.groupId) {
+        await prefs.remove('active_group_id');
+        await prefs.remove('roster_${widget.groupId}');
+        await prefs.remove('group_status_${widget.groupId}');
+        await prefs.remove('missing_threshold_${widget.groupId}');
+      }
+      if (!mounted) return;
+      showAppSnack(context, 'Expedition deleted.');
+      context.go('/groups');
+    } else if (mounted) {
+      showAppSnack(context, error, error: true);
+    }
+  }
+
   Future<void> _useForNavigation() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('active_group_id', widget.groupId);
     if (mounted) {
       showAppSnack(context, 'Set as your active expedition.');
-      context.go('/map');
+      context.go('/map?expeditionId=${widget.groupId}');
     }
   }
 
@@ -266,6 +394,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                       _statsRow(),
                       const SizedBox(height: 8),
                       if (_isCurrentUserGuide) _guideControls(),
+                      ..._routesSection(),
                       ..._missingSection(),
                       ..._membersSection(),
                     ],
@@ -434,6 +563,12 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                   onPressed: _isBusy ? null : () => _changeStatus('COMPLETED'),
                   icon: const Icon(Icons.flag),
                   label: const Text('Complete expedition'),
+                )
+              else
+                FilledButton.tonalIcon(
+                  onPressed: _isBusy ? null : _confirmReactivate,
+                  icon: const Icon(Icons.restart_alt),
+                  label: const Text('Reactivate expedition'),
                 ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
@@ -441,11 +576,60 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                 icon: const Icon(Icons.edit_outlined),
                 label: const Text('Edit expedition'),
               ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _isBusy ? null : _confirmDelete,
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Delete expedition'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.danger,
+                  side: const BorderSide(color: AppTheme.danger),
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  List<Widget> _routesSection() {
+    if (!_isCurrentUserGuide) return [];
+    final scheme = Theme.of(context).colorScheme;
+
+    return [
+      SectionHeader(title: 'Routes', count: _routes.length),
+      if (_routes.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            'No routes recorded for this expedition yet. Use the map to record one.',
+            style: TextStyle(color: scheme.onSurfaceVariant),
+          ),
+        ),
+      for (final route in _routes)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Card(
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: scheme.primaryContainer.withValues(alpha: 0.3),
+                foregroundColor: scheme.primary,
+                child: const Icon(Icons.route),
+              ),
+              title: Text(
+                route['title']?.toString() ?? 'Untitled route',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(
+                '${_activityLabel(route['activity_type'])} · '
+                '${_formatDistance(route['total_distance_meters'])} · '
+                '${_relativeTime(route['created_at'])}',
+              ),
+            ),
+          ),
+        ),
+    ];
   }
 
   List<Widget> _missingSection() {
@@ -685,6 +869,18 @@ class _ErrorState extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatDistance(dynamic meters) {
+  if (meters is! num) return '—';
+  if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(1)} km';
+  return '${meters.round()} m';
+}
+
+String _activityLabel(dynamic type) {
+  final value = type?.toString() ?? '';
+  if (value.isEmpty) return 'Route';
+  return value[0].toUpperCase() + value.substring(1);
 }
 
 String _initials(String name) {

@@ -1,0 +1,14 @@
+{
+  "name": "brag",
+  "private": true,
+  "type": "module",
+  "description": "Render the WhiteMountain introduction video from an animated HTML page.",
+  "scripts": {
+    "setup": "npm install && npx playwright install chromium",
+    "render": "node scripts/render.mjs"
+  },
+  "devDependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "playwright": "^1.48.0"
+  }
+}

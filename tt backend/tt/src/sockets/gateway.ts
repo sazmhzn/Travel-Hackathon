@@ -24,6 +24,7 @@ export function initializeSocketIO(httpServer: HttpServer): SocketIOServer {
     cors: {
       origin: '*',
       methods: ['GET', 'POST'],
+      allowedHeaders: '*',
     },
     transports: ['websocket', 'polling'],
   });
@@ -137,7 +138,23 @@ export function initializeSocketIO(httpServer: HttpServer): SocketIOServer {
 
     // 4. Plan Receipt ACK (Sequence 1)
     socket.on('plan:ack', ({ planId, groupId }: { planId: string; groupId: string }) => {
-      logger.debug({ userId: user?.id, planId, groupId }, 'Member acknowledged plan receipt');
+      logger.debug({ userId: user?.id, planId }, 'Member acknowledged plan receipt');
+    });
+
+    // 5. A member was found by a searcher: tell the rest of the expedition.
+    socket.on('member:found', ({ groupId, userId, foundByName }: {
+      groupId: string;
+      userId: string;
+      foundByName?: string;
+    }) => {
+      if (!user || !groupId || !userId) return;
+      socket.to(`group:${groupId}`).emit('member:found', {
+        groupId,
+        userId,
+        foundBy: user.id,
+        foundByName: foundByName || 'A member',
+        timestamp: new Date().toISOString(),
+      });
     });
 
     socket.on('disconnect', () => {

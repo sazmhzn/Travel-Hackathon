@@ -83,6 +83,35 @@ describe('GroupsService Integration', () => {
     expect(completed.status).toBe('COMPLETED');
   });
 
+  it('should clear members when a completed expedition is reactivated', async () => {
+    const guide = await AuthService.register({
+      email: `guide-${Date.now()}@reactivate.com`,
+      password: 'Password123!',
+      name: 'Reactivate Guide',
+      role: 'GUIDE',
+    });
+    const member = await AuthService.register({
+      email: `member-${Date.now()}@reactivate.com`,
+      password: 'Password123!',
+      name: 'Leaving Member',
+      role: 'MEMBER',
+    });
+
+    const group = await GroupsService.createGroup({
+      name: 'Reactivate Expedition',
+      createdBy: guide.id,
+    });
+    await GroupsService.joinGroupByInviteCode(member.id, group.invite_code);
+    await GroupsService.setGroupStatus(guide.id, group.id, 'COMPLETED');
+
+    const reactivated = await GroupsService.setGroupStatus(guide.id, group.id, 'PENDING');
+    expect(reactivated.status).toBe('PENDING');
+
+    const members = await GroupsService.getGroupMembers(group.id);
+    expect(members.some((m) => m.user_id === member.id)).toBe(false);
+    expect(members.some((m) => m.user_id === guide.id && m.role === 'GUIDE')).toBe(true);
+  });
+
   it('should not let a guide run two expeditions at once', async () => {
     const guide = await AuthService.register({
       email: `guide-${Date.now()}@ongoing.com`,
@@ -258,6 +287,35 @@ describe('GroupsService Integration', () => {
     ).rejects.toThrow(/guide/i);
   });
 
+  it('should let a guide delete an expedition but not a member', async () => {
+    const guide = await AuthService.register({
+      email: `guide-${Date.now()}@delete.com`,
+      password: 'Password123!',
+      name: 'Delete Guide',
+      role: 'GUIDE',
+    });
+    const member = await AuthService.register({
+      email: `member-${Date.now()}@delete.com`,
+      password: 'Password123!',
+      name: 'Delete Member',
+      role: 'MEMBER',
+    });
+
+    const group = await GroupsService.createGroup({
+      name: 'Doomed Expedition',
+      createdBy: guide.id,
+    });
+    await GroupsService.joinGroupByInviteCode(member.id, group.invite_code);
+
+    await expect(
+      GroupsService.deleteGroup(member.id, group.id)
+    ).rejects.toThrow(/guide/i);
+
+    await GroupsService.deleteGroup(guide.id, group.id);
+    expect(await GroupsService.getGroupById(group.id)).toBeNull();
+    expect((await GroupsService.getGroupMembers(group.id)).length).toBe(0);
+  });
+
   it('should browse only pending and completed expeditions', async () => {
     const guide = await AuthService.register({
       email: `guide-${Date.now()}@browse.com`,
@@ -330,8 +388,27 @@ describe('GroupsService Integration', () => {
     expect(details.group.id).toBe(group.id);
     expect(details.memberCount).toBe(1);
     expect(details.guideCount).toBe(1);
-    expect(details.missingCount).toBe(1); // guide has not sent telemetry yet
-    expect(details.members[0].isMissing).toBe(true);
+    // Guides are never "missing" — a quiet guide is simply off the path.
+    expect(details.members[0].role).toBe('GUIDE');
+    expect(details.members[0].isMissing).toBe(false);
+    expect(details.missingCount).toBe(0);
+  });
+
+  it('should expose the configurable 5s missing threshold to clients', async () => {
+    const guide = await AuthService.register({
+      email: `guide-${Date.now()}@threshold.com`,
+      password: 'Password123!',
+      name: 'Threshold Guide',
+      role: 'GUIDE',
+    });
+
+    const group = await GroupsService.createGroup({
+      name: 'Threshold Expedition',
+      createdBy: guide.id,
+    });
+
+    const details = await GroupsService.getGroupDetails(group.id, guide.id);
+    expect(details.missingThresholdSeconds).toBe(5);
   });
 
   it('should seed fallback groups for a guide with no expeditions, once', async () => {

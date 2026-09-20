@@ -16,7 +16,7 @@ const envBoolean = (defaultValue: boolean) =>
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
-  HOST: z.string().default('0.0.0.0'),
+  HOST: z.string().default('192.168.110.11'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   
   // JWT
@@ -49,6 +49,12 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_EMERGENCY_CHAT_ID: z.string().optional(),
   FIREBASE_SERVICE_ACCOUNT_KEY: z.string().optional(),
+
+  // Live tracking
+  // A member is "missing" when no telemetry ping arrives within this window.
+  MISSING_THRESHOLD_SECONDS: z.coerce.number().positive().default(5),
+  // Radius alerted when a member triggers SOS (non-members within range too).
+  SOS_RADIUS_KM: z.coerce.number().positive().default(20),
 
   // Destination Agent
   DESTINATION_AGENT_ENABLED: z.coerce.boolean().default(true),

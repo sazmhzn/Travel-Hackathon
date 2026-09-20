@@ -50,18 +50,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Container(
-                    width: 72,
-                    height: 72,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: scheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Icon(
-                      Icons.travel_explore,
-                      size: 40,
-                      color: scheme.onPrimaryContainer,
+                  Center(
+                    child: Image.asset(
+                      'assets/images/wandersafe_logo.png',
+                      width: 220,
+                      fit: BoxFit.contain,
                     ),
                   ),
                   const SizedBox(height: 20),
