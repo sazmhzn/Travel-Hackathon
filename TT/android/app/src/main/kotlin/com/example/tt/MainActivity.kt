@@ -1,8 +1,10 @@
 package com.example.tt
 
+import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import android.location.Location
 import android.os.Build
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -16,6 +18,8 @@ class MainActivity: FlutterActivity() {
     private val MESH_EVENT_CHANNEL = "com.example.tt/mesh_updates"
 
     private val HOTSPOT_METHOD_CHANNEL = "com.example.tt/hotspot_control"
+
+    private val DEVICE_IDENTITY_CHANNEL = "com.example.tt/device_identity"
 
     private var eventSink: EventChannel.EventSink? = null
     private var meshEventSink: EventChannel.EventSink? = null
@@ -80,7 +84,8 @@ class MainActivity: FlutterActivity() {
                     result.success(true)
                 }
                 "startDiscovery" -> {
-                    nearbyMeshService.startDiscovery()
+                    val target = call.argument<String>("targetIdentifier")
+                    nearbyMeshService.startDiscovery(target)
                     result.success(true)
                 }
                 "stopMesh" -> {
@@ -151,6 +156,32 @@ class MainActivity: FlutterActivity() {
                 "disconnect" -> {
                     hotspotService.disconnectHotspot()
                     result.success(true)
+                }
+                else -> {
+                    result.notImplemented()
+                }
+            }
+        }
+
+        // Device identity: stable device id + Bluetooth display name used for
+        // mesh/missing-member search, sent to the backend on login.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_IDENTITY_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getIdentity" -> {
+                    val androidId = Settings.Secure.getString(
+                        contentResolver,
+                        Settings.Secure.ANDROID_ID
+                    ) ?: ""
+                    val bluetoothName = try {
+                        BluetoothAdapter.getDefaultAdapter()?.name ?: ""
+                    } catch (e: SecurityException) {
+                        // BLUETOOTH_CONNECT not granted; fall back to model.
+                        Build.MODEL
+                    }
+                    result.success(mapOf(
+                        "deviceId" to androidId,
+                        "bluetoothName" to bluetoothName
+                    ))
                 }
                 else -> {
                     result.notImplemented()

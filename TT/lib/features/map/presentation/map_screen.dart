@@ -18,6 +18,7 @@ import '../../routes/data/route_recording_service.dart';
 import '../../groups/data/group_service.dart';
 import '../../mesh/data/mesh_network_service.dart';
 import '../data/hotspot_service.dart';
+import '../../../core/device_identity.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key, this.expeditionId});
@@ -54,6 +55,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   StreamSubscription? _meshHotspotSub;
   bool _offline = false;
   bool _hotspotActive = false;
+  Map<String, String> _identity = const {};
 
   @override
   void initState() {
@@ -172,6 +174,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         'name': member['name']?.toString() ?? 'Member',
         'role': member['role']?.toString() ?? 'MEMBER',
         'number': isGuide ? null : number,
+        'deviceId': member['device_id']?.toString(),
+        'bluetoothName': member['bluetooth_name']?.toString(),
+        'isMissing': member['isMissing'] == true,
       };
       // Seed last-known positions so everyone appears immediately, not only
       // after their next live update.
@@ -193,7 +198,37 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       await _toggleTracking();
     }
 
+    _identity = await ref.read(deviceIdentityProvider).get();
+    _setupExpeditionMesh();
+
+    // Draw the expedition's route for both the guide and the members.
+    await _renderRoute();
+
     await _checkConnectivity();
+  }
+
+  /// Advertises this device under its own identifier and, if any member is
+  /// missing, searches only for that member's Bluetooth identifier/name.
+  Future<void> _setupExpeditionMesh() async {
+    final mesh = ref.read(meshNetworkServiceProvider);
+    await mesh.startAdvertising(_identity['deviceId'] ?? 'traveler');
+
+    final missing = _roster.entries.where((entry) {
+      if (entry.key == _currentUserId) return false;
+      if (entry.value['isMissing'] != true) return false;
+      final id = entry.value['deviceId'] ?? entry.value['bluetoothName'];
+      return id != null && id.toString().isNotEmpty;
+    }).toList();
+
+    if (missing.isEmpty) {
+      await mesh.startDiscovery();
+      return;
+    }
+
+    final target = (missing.first.value['deviceId'] ??
+            missing.first.value['bluetoothName'])
+        .toString();
+    await mesh.startDiscovery(targetIdentifier: target);
   }
 
   void _setupMeshListeners() {

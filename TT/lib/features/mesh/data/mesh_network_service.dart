@@ -34,18 +34,27 @@ class MeshNetworkService {
 
   MeshNetworkService(this._ref);
 
-  Future<void> startAdvertising(String userId) async {
+  /// Advertises this device under [identifier] so peers can find it by name.
+  Future<void> startAdvertising(String identifier) async {
     try {
-      await _methodChannel.invokeMethod('startAdvertising', {'userId': userId});
+      await _methodChannel.invokeMethod('startAdvertising', {
+        'userId': identifier,
+        'identifier': identifier,
+      });
       _startListeningForPayloads();
     } on PlatformException catch (e) {
       print("Failed to start mesh advertising: '${e.message}'.");
     }
   }
 
-  Future<void> startDiscovery() async {
+  /// Discovers nearby peers. When [targetIdentifier] is provided only that
+  /// specific device is searched for (e.g. a missing expedition member),
+  /// instead of connecting to every nearby endpoint.
+  Future<void> startDiscovery({String? targetIdentifier}) async {
     try {
-      await _methodChannel.invokeMethod('startDiscovery');
+      await _methodChannel.invokeMethod('startDiscovery', {
+        'targetIdentifier': targetIdentifier,
+      });
       _startListeningForPayloads();
     } on PlatformException catch (e) {
       print("Failed to start mesh discovery: '${e.message}'.");

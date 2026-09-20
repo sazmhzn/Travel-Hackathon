@@ -8,6 +8,8 @@ export interface UserPayload {
   phone?: string;
   role: 'GUIDE' | 'MEMBER' | 'ADMIN';
   fcm_token?: string;
+  device_id?: string | null;
+  bluetooth_name?: string | null;
 }
 
 // In-memory fallback mock user store for offline dev/tests when PostgreSQL is not running
@@ -20,6 +22,8 @@ export class AuthService {
     name: string;
     phone?: string;
     role?: 'GUIDE' | 'MEMBER';
+    deviceId?: string;
+    bluetoothName?: string;
   }): Promise<UserPayload> {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(data.password, salt);
@@ -28,10 +32,18 @@ export class AuthService {
 
     try {
       const res = await query(
-        `INSERT INTO users (email, password_hash, name, phone, role)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, email, name, phone, role, fcm_token`,
-        [emailKey, passwordHash, data.name, data.phone || null, role]
+        `INSERT INTO users (email, password_hash, name, phone, role, device_id, bluetooth_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, email, name, phone, role, fcm_token, device_id, bluetooth_name`,
+        [
+          emailKey,
+          passwordHash,
+          data.name,
+          data.phone || null,
+          role,
+          data.deviceId || null,
+          data.bluetoothName || null,
+        ]
       );
       return res.rows[0];
     } catch (err: any) {
@@ -48,10 +60,20 @@ export class AuthService {
           name: data.name,
           phone: data.phone,
           role,
+          device_id: data.deviceId,
+          bluetooth_name: data.bluetoothName,
           password_hash: passwordHash,
         };
         inMemoryUsers.set(emailKey, user);
-        return { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role };
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          phone: user.phone,
+          role: user.role,
+          device_id: user.device_id,
+          bluetooth_name: user.bluetooth_name,
+        };
       }
       if (err.code === '23505') {
         throw new Error('Email is already registered');
@@ -63,12 +85,17 @@ export class AuthService {
   static async login(data: {
     email: string;
     password: string;
+    deviceId?: string;
+    bluetoothName?: string;
   }): Promise<UserPayload> {
     const emailKey = data.email.toLowerCase();
+    const hasIdentity =
+      (data.deviceId && data.deviceId.length > 0) ||
+      (data.bluetoothName && data.bluetoothName.length > 0);
 
     try {
       const res = await query(
-        `SELECT id, email, password_hash, name, phone, role, fcm_token
+        `SELECT id, email, password_hash, name, phone, role, fcm_token, device_id, bluetooth_name
          FROM users
          WHERE email = $1`,
         [emailKey]
@@ -84,6 +111,20 @@ export class AuthService {
         throw new Error('Invalid email or password');
       }
 
+      // Bind this device's Bluetooth identity to the profile on login.
+      if (hasIdentity) {
+        const updated = await query(
+          `UPDATE users
+           SET device_id = COALESCE($2, device_id),
+               bluetooth_name = COALESCE($3, bluetooth_name),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1
+           RETURNING id, email, name, phone, role, fcm_token, device_id, bluetooth_name`,
+          [user.id, data.deviceId || null, data.bluetoothName || null]
+        );
+        return updated.rows[0];
+      }
+
       return {
         id: user.id,
         email: user.email,
@@ -91,6 +132,8 @@ export class AuthService {
         phone: user.phone,
         role: user.role,
         fcm_token: user.fcm_token,
+        device_id: user.device_id,
+        bluetooth_name: user.bluetooth_name,
       };
     } catch (err: any) {
       // In-memory fallback
@@ -99,6 +142,10 @@ export class AuthService {
         if (!user) throw new Error('Invalid email or password');
         const valid = await bcrypt.compare(data.password, user.password_hash);
         if (!valid) throw new Error('Invalid email or password');
+        if (hasIdentity) {
+          if (data.deviceId) user.device_id = data.deviceId;
+          if (data.bluetoothName) user.bluetooth_name = data.bluetoothName;
+        }
         return {
           id: user.id,
           email: user.email,
@@ -106,6 +153,8 @@ export class AuthService {
           phone: user.phone,
           role: user.role,
           fcm_token: user.fcm_token,
+          device_id: user.device_id,
+          bluetooth_name: user.bluetooth_name,
         };
       }
       throw err;
@@ -126,14 +175,23 @@ export class AuthService {
   static async getUserById(userId: string): Promise<UserPayload | null> {
     try {
       const res = await query(
-        'SELECT id, email, name, phone, role, fcm_token FROM users WHERE id = $1',
+        'SELECT id, email, name, phone, role, fcm_token, device_id, bluetooth_name FROM users WHERE id = $1',
         [userId]
       );
       return res.rows[0] || null;
     } catch (err: any) {
       for (const u of inMemoryUsers.values()) {
         if (u.id === userId) {
-          return { id: u.id, email: u.email, name: u.name, phone: u.phone, role: u.role, fcm_token: u.fcm_token };
+          return {
+            id: u.id,
+            email: u.email,
+            name: u.name,
+            phone: u.phone,
+            role: u.role,
+            fcm_token: u.fcm_token,
+            device_id: u.device_id,
+            bluetooth_name: u.bluetooth_name,
+          };
         }
       }
       return null;

@@ -29,6 +29,8 @@ export interface GroupMember {
   email?: string;
   phone?: string;
   fcm_token?: string;
+  device_id?: string | null;
+  bluetooth_name?: string | null;
 }
 
 export interface GroupMemberStatus extends GroupMember {
@@ -557,7 +559,8 @@ export class GroupsService {
   static async getGroupMembers(groupId: string): Promise<GroupMember[]> {
     try {
       const res = await query(
-        `SELECT gm.id, gm.group_id, gm.user_id, gm.role, gm.joined_at, u.name, u.email, u.phone, u.fcm_token
+        `SELECT gm.id, gm.group_id, gm.user_id, gm.role, gm.joined_at,
+                u.name, u.email, u.phone, u.fcm_token, u.device_id, u.bluetooth_name
          FROM group_members gm
          JOIN users u ON gm.user_id = u.id
          WHERE gm.group_id = $1
@@ -578,6 +581,8 @@ export class GroupsService {
           email: u?.email,
           phone: u?.phone,
           fcm_token: u?.fcm_token,
+          device_id: u?.device_id,
+          bluetooth_name: u?.bluetooth_name,
         });
       }
       return enriched;

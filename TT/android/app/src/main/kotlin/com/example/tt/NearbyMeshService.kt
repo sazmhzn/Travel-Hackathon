@@ -14,12 +14,20 @@ class NearbyMeshService(private val context: Context) {
     
     private val connectionsClient = Nearby.getConnectionsClient(context)
     private var connectedEndpointId: String? = null
-    
+
+    // When set, discovery only connects to the endpoint with this exact name.
+    private var targetIdentifier: String? = null
+
     var payloadListener: ((String) -> Unit)? = null
 
     // Endpoint Discovery Callback
     private val endpointDiscoveryCallback = object : EndpointDiscoveryCallback() {
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
+            val target = targetIdentifier
+            if (!target.isNullOrEmpty() && info.endpointName != target) {
+                Log.d(TAG, "Skipping endpoint ${info.endpointName}; looking for $target")
+                return
+            }
             Log.d(TAG, "Endpoint found: ${info.endpointName}, connecting...")
             connectionsClient.requestConnection(
                 Build.MODEL,
@@ -94,7 +102,8 @@ class NearbyMeshService(private val context: Context) {
         }
     }
 
-    fun startDiscovery() {
+    fun startDiscovery(identifier: String? = null) {
+        targetIdentifier = identifier
         val discoveryOptions = DiscoveryOptions.Builder().setStrategy(STRATEGY).build()
         connectionsClient.startDiscovery(
             SERVICE_ID,
@@ -112,6 +121,7 @@ class NearbyMeshService(private val context: Context) {
         connectionsClient.stopDiscovery()
         connectionsClient.stopAllEndpoints()
         connectedEndpointId = null
+        targetIdentifier = null
         Log.d(TAG, "Stopped all mesh networking")
     }
 

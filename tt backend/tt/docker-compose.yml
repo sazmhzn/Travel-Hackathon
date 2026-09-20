@@ -104,9 +104,9 @@ services:
       MINIO_BUCKET: travel-media
       JWT_SECRET: super-secret-travel-emergency-jwt-key-32chars-min
       DESTINATION_AGENT_ENABLED: "true"
-      GOOGLE_GEMINI_API_KEY: "${GOOGLE_GEMINI_API_KEY}"
-      GOOGLE_PLACES_API_KEY: "${GOOGLE_PLACES_API_KEY}"
-      GOOGLE_ROUTES_API_KEY: "${GOOGLE_ROUTES_API_KEY}"
+      GOOGLE_GEMINI_API_KEY: ""
+      GOOGLE_PLACES_API_KEY: ""
+      GOOGLE_ROUTES_API_KEY: ""
 
 volumes:
   postgres_data:
