@@ -111,6 +111,7 @@ class SocketService {
       'group:removed': 'group_removed',
       'group:deleted': 'group_deleted',
       'route:recorded': 'route_recorded',
+      'route:deleted': 'route_deleted',
     }.entries) {
       _socket!.on(entry.key, (data) {
         if (data is Map) {

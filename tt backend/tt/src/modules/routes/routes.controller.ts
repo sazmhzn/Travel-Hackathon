@@ -206,4 +206,86 @@ export async function routeRoutes(fastify: FastifyInstance) {
       return reply.status(200).send({ route });
     }
   );
+
+  // DELETE /api/routes/:id - Delete a recorded route (creator guide only)
+  fastify.delete(
+    '/:id',
+    {
+      preHandler: [authenticate, requireRole(['GUIDE', 'ADMIN'])],
+      schema: {
+        description: 'Delete a recorded route. Only the guide who created it, or an admin, may delete it.',
+        tags: ['Routes'],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string' },
+          },
+        },
+        response: {
+          200: {
+            description: 'Route deleted',
+            type: 'object',
+            properties: {
+              message: { type: 'string' },
+            },
+          },
+          401: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
+          },
+          403: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
+          },
+          404: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = request.params as { id: string };
+      const result = await RoutesService.deleteRoute(
+        id,
+        request.user.id,
+        request.user.role === 'ADMIN'
+      );
+
+      if (result.status === 'not_found') {
+        return reply.status(404).send({
+          error: 'RouteNotFound',
+          message: `Route with id ${id} does not exist`,
+        });
+      }
+
+      if (result.status === 'forbidden') {
+        return reply.status(403).send({
+          error: 'Forbidden',
+          message: 'Only the guide who created this route can delete it',
+        });
+      }
+
+      // Let the expedition drop the route without refreshing.
+      if (result.route.group_id) {
+        broadcastToGroup(result.route.group_id, 'route:deleted', {
+          groupId: result.route.group_id,
+          routeId: result.route.id,
+        });
+      }
+
+      return reply.status(200).send({ message: 'Route deleted' });
+    }
+  );
 }

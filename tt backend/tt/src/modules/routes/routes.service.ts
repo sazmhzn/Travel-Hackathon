@@ -35,6 +35,20 @@ export interface RouteRecord {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function isDatabaseOffline(err: any): boolean {
+  return (
+    err?.code === 'ECONNREFUSED' ||
+    err?.code === 'ENOTFOUND' ||
+    err?.code === 'ETIMEDOUT' ||
+    /connect/i.test(err?.message ?? '')
+  );
+}
+
+export type DeleteRouteResult =
+  | { status: 'deleted'; route: RouteRecord }
+  | { status: 'not_found' }
+  | { status: 'forbidden' };
+
 // In-memory fallback map for offline/disconnected test environments
 export const inMemoryRoutes = new Map<string, RouteRecord>();
 
@@ -292,5 +306,29 @@ export class RoutesService {
         .filter((r) => r.group_id === groupId)
         .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
     }
+  }
+
+  /**
+   * Deletes a recorded route. Only the guide who created it may delete it;
+   * admins are also allowed. Returns a discriminated result so the controller
+   * can map the outcome to 200/403/404.
+   */
+  static async deleteRoute(
+    id: string,
+    userId: string,
+    isAdmin = false
+  ): Promise<DeleteRouteResult> {
+    const existing = await this.getRouteById(id);
+    if (!existing) return { status: 'not_found' };
+    if (!isAdmin && existing.guide_id !== userId) return { status: 'forbidden' };
+
+    try {
+      await query('DELETE FROM routes WHERE id = $1', [id]);
+    } catch (err: any) {
+      if (!isDatabaseOffline(err)) throw err;
+    }
+
+    inMemoryRoutes.delete(id);
+    return { status: 'deleted', route: existing };
   }
 }

@@ -374,6 +374,45 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     }
   }
 
+  Future<void> _confirmDeleteRoute(Map<String, dynamic> route) async {
+    final title = route['title']?.toString() ?? 'this route';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.delete_outline, size: 36, color: AppTheme.danger),
+        title: const Text('Delete route?'),
+        content: Text(
+          'This permanently deletes "$title". This cannot be undone.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _isBusy = true);
+    final error =
+        await ref.read(groupServiceProvider).deleteRoute(route['id'].toString());
+    if (!mounted) return;
+    setState(() => _isBusy = false);
+    if (error == null) {
+      await _load();
+      if (mounted) showAppSnack(context, 'Route deleted.');
+    } else if (mounted) {
+      showAppSnack(context, error, error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -626,6 +665,16 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                 '${_formatDistance(route['total_distance_meters'])} · '
                 '${_relativeTime(route['created_at'])}',
               ),
+              trailing: route['guide_id']?.toString() == _currentUserId
+                  ? IconButton(
+                      onPressed: _isBusy
+                          ? null
+                          : () => _confirmDeleteRoute(route),
+                      tooltip: 'Delete route',
+                      icon: const Icon(Icons.delete_outline, size: 20),
+                      color: AppTheme.danger,
+                    )
+                  : null,
             ),
           ),
         ),

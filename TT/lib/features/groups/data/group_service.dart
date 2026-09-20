@@ -95,6 +95,23 @@ class GroupService {
     }
   }
 
+  /// Deletes a route recorded by the current guide. Returns an error message on
+  /// failure, otherwise `null`.
+  Future<String?> deleteRoute(String routeId) async {
+    try {
+      final response = await _client.delete('/routes/$routeId');
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        return null;
+      }
+      return 'Could not delete this route.';
+    } on DioException catch (e) {
+      return _messageFromDio(e) ?? 'Could not delete this route.';
+    } catch (e) {
+      print('Delete route error: $e');
+      return 'Could not delete this route.';
+    }
+  }
+
   Future<Map<String, dynamic>?> getGroupDetails(String groupId) async {
     try {
       final response = await _client.get('/groups/$groupId');

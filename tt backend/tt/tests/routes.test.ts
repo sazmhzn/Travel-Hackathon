@@ -5,6 +5,7 @@ import { buildApp } from '../src/app.js';
 describe('Spatial Path Ingestion (Routes API)', () => {
   let app: FastifyInstance;
   let guideToken: string;
+  let otherGuideToken: string;
   let memberToken: string;
   let createdRouteId: string;
 
@@ -36,6 +37,20 @@ describe('Spatial Path Ingestion (Routes API)', () => {
     });
     expect(guideRes.statusCode).toBe(201);
     guideToken = JSON.parse(guideRes.body).token;
+
+    // Register a second Guide (not the owner of the routes below)
+    const otherGuideRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: `track-other-guide-${Date.now()}@example.com`,
+        password: 'Password123!',
+        name: 'Other Himalayan Guide',
+        role: 'GUIDE',
+      },
+    });
+    expect(otherGuideRes.statusCode).toBe(201);
+    otherGuideToken = JSON.parse(otherGuideRes.body).token;
 
     // Register Member user
     const memberRes = await app.inject({
@@ -270,6 +285,90 @@ describe('Spatial Path Ingestion (Routes API)', () => {
     expect(body.route.total_distance_meters).toBeGreaterThan(0);
     expect(body.route.bounding_box.type).toBe('Polygon');
     expect(body.route.path.type).toBe('LineString');
+  });
+
+  it('DELETE /api/routes/:id - should delete the route created by the owning guide', async () => {
+    const recordRes = await app.inject({
+      method: 'POST',
+      url: '/api/routes/record',
+      headers: { authorization: `Bearer ${guideToken}` },
+      payload: {
+        title: 'Route to be deleted',
+        activity_type: 'trekking',
+        geoJson: validHimalayanTrack,
+      },
+    });
+    expect(recordRes.statusCode).toBe(201);
+    const routeId = JSON.parse(recordRes.body).route.id;
+
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/api/routes/${routeId}`,
+      headers: { authorization: `Bearer ${guideToken}` },
+    });
+    expect(deleteRes.statusCode).toBe(200);
+    expect(JSON.parse(deleteRes.body).message).toBe('Route deleted');
+
+    const getRes = await app.inject({
+      method: 'GET',
+      url: `/api/routes/${routeId}`,
+    });
+    expect(getRes.statusCode).toBe(404);
+  });
+
+  it('DELETE /api/routes/:id - should reject a guide who is not the creator with 403', async () => {
+    const recordRes = await app.inject({
+      method: 'POST',
+      url: '/api/routes/record',
+      headers: { authorization: `Bearer ${guideToken}` },
+      payload: {
+        title: 'Owned by first guide',
+        activity_type: 'trekking',
+        geoJson: validHimalayanTrack,
+      },
+    });
+    expect(recordRes.statusCode).toBe(201);
+    const routeId = JSON.parse(recordRes.body).route.id;
+
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/api/routes/${routeId}`,
+      headers: { authorization: `Bearer ${otherGuideToken}` },
+    });
+    expect(deleteRes.statusCode).toBe(403);
+    expect(JSON.parse(deleteRes.body).error).toBe('Forbidden');
+  });
+
+  it('DELETE /api/routes/:id - should reject Member role with 403', async () => {
+    const recordRes = await app.inject({
+      method: 'POST',
+      url: '/api/routes/record',
+      headers: { authorization: `Bearer ${guideToken}` },
+      payload: {
+        title: 'Guide-only delete',
+        activity_type: 'trekking',
+        geoJson: validHimalayanTrack,
+      },
+    });
+    expect(recordRes.statusCode).toBe(201);
+    const routeId = JSON.parse(recordRes.body).route.id;
+
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/api/routes/${routeId}`,
+      headers: { authorization: `Bearer ${memberToken}` },
+    });
+    expect(deleteRes.statusCode).toBe(403);
+  });
+
+  it('DELETE /api/routes/:id - should return 404 for an unknown route', async () => {
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: '/api/routes/00000000-0000-0000-0000-000000000000',
+      headers: { authorization: `Bearer ${guideToken}` },
+    });
+    expect(deleteRes.statusCode).toBe(404);
+    expect(JSON.parse(deleteRes.body).error).toBe('RouteNotFound');
   });
 });
 
