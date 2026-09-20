@@ -35,6 +35,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
   _GroupSort _sort = _GroupSort.newest;
+  int _loadGeneration = 0;
 
   bool get _isGuide => _userRole == 'GUIDE';
 
@@ -51,12 +52,14 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
   }
 
   Future<void> _loadData() async {
+    final generation = ++_loadGeneration;
     final profile = await ref.read(authServiceProvider).getProfile();
     final results = await Future.wait([
       ref.read(groupServiceProvider).getMyGroups(),
       ref.read(groupServiceProvider).getBrowseGroups(),
     ]);
-    if (!mounted) return;
+    // Ignore a slower, older response that would overwrite fresh data.
+    if (!mounted || generation != _loadGeneration) return;
     setState(() {
       _userRole = profile?['role'] as String?;
       _currentUserId = profile?['id']?.toString();

@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { query } from '../../config/database.js';
 import { env } from '../../config/env.js';
+import { broadcastToGroup, broadcastToUser } from '../../sockets/gateway.js';
 import { AuthService } from '../auth/auth.service.js';
 import { TelemetryService } from '../telemetry/telemetry.service.js';
 
@@ -248,6 +249,7 @@ export class GroupsService {
         );
       }
 
+      broadcastToGroup(group.id, 'group:member_joined', { groupId: group.id, userId });
       return group;
     } catch (err: any) {
       if (isDatabaseOffline(err)) {
@@ -267,6 +269,7 @@ export class GroupsService {
           members.push({ id: `gm-${Date.now()}`, group_id: matched.id, user_id: userId, role: 'MEMBER' });
           inMemoryGroupMembers.set(matched.id, members);
         }
+        broadcastToGroup(matched.id, 'group:member_joined', { groupId: matched.id, userId });
         return matched;
       }
       throw err;
@@ -289,6 +292,7 @@ export class GroupsService {
         inMemoryGroupMembers.set(groupId, members);
       }
     }
+    broadcastToGroup(groupId, 'group:member_joined', { groupId, userId });
   }
 
   static async getOwnedGroups(userId: string): Promise<Group[]> {
@@ -347,6 +351,7 @@ export class GroupsService {
       if (res.rowCount === 0) {
         throw new Error('Group not found');
       }
+      broadcastToGroup(groupId, 'group:updated', { groupId });
       return res.rows[0];
     } catch (err: any) {
       if (!isDatabaseOffline(err)) throw err;
@@ -357,6 +362,7 @@ export class GroupsService {
         group.hotspot_ssid = null;
         group.hotspot_password = null;
       }
+      broadcastToGroup(groupId, 'group:updated', { groupId });
       return group;
     }
   }
@@ -628,6 +634,7 @@ export class GroupsService {
         [groupId, data.name ?? null, data.description ?? null]
       );
       if (res.rowCount === 0) throw new Error('Group not found');
+      broadcastToGroup(groupId, 'group:updated', { groupId });
       return res.rows[0];
     } catch (err: any) {
       if (!isDatabaseOffline(err)) throw err;
@@ -635,6 +642,7 @@ export class GroupsService {
       if (!group) throw new Error('Group not found');
       if (data.name !== undefined) group.name = data.name;
       if (data.description !== undefined) group.description = data.description;
+      broadcastToGroup(groupId, 'group:updated', { groupId });
       return group;
     }
   }
@@ -672,6 +680,9 @@ export class GroupsService {
         list.filter((m) => m.user_id !== memberUserId)
       );
     }
+
+    broadcastToGroup(groupId, 'group:member_removed', { groupId, userId: memberUserId });
+    broadcastToUser(memberUserId, 'group:removed', { groupId });
   }
 
   static async getUserGroups(userId: string, role?: 'GUIDE' | 'MEMBER' | 'ADMIN'): Promise<Group[]> {

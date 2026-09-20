@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/app_theme.dart';
+import '../../../core/socket_service.dart';
 import '../data/group_service.dart';
 import '../../auth/data/auth_service.dart';
 import 'group_widgets.dart';
@@ -23,20 +26,60 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
   bool _isBusy = false;
   String? _currentUserId;
   bool _isCurrentUserGuide = false;
+  StreamSubscription? _groupEventSub;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _setupRealtime();
+  }
+
+  @override
+  void dispose() {
+    _groupEventSub?.cancel();
+    super.dispose();
+  }
+
+  /// Refetches on membership/status/route changes from other devices, so the
+  /// page never shows stale members or routes.
+  void _setupRealtime() {
+    final socket = ref.read(socketServiceProvider);
+    socket.connect();
+    socket.joinGroup(widget.groupId);
+    _groupEventSub = socket.groupEventStream.listen((data) {
+      if (data['groupId']?.toString() != widget.groupId) return;
+      if (data['event'] == 'group_removed') {
+        _handleRemoved();
+      } else {
+        _load();
+      }
+    });
+  }
+
+  Future<void> _handleRemoved() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString('active_group_id') == widget.groupId) {
+      await prefs.remove('active_group_id');
+      await prefs.remove('roster_${widget.groupId}');
+      await prefs.remove('group_status_${widget.groupId}');
+      await prefs.remove('missing_threshold_${widget.groupId}');
+    }
+    if (!mounted) return;
+    showAppSnack(context, 'You were removed from this expedition.', error: true);
+    context.go('/groups');
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
     final profile = await ref.read(authServiceProvider).getProfile();
     final details =
         await ref.read(groupServiceProvider).getGroupDetails(widget.groupId);
     final routes =
         await ref.read(groupServiceProvider).getGroupRoutes(widget.groupId);
-    if (!mounted) return;
+    // Ignore a slower, older response that would overwrite fresh data.
+    if (!mounted || generation != _loadGeneration) return;
     final members = (details?['members'] as List?) ?? [];
     final currentId = profile?['id']?.toString();
     setState(() {
@@ -225,8 +268,6 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
         ),
       ),
     );
-    nameController.dispose();
-    descController.dispose();
   }
 
   Future<void> _confirmRemoveMember(Map<String, dynamic> member) async {

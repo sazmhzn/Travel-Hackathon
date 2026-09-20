@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -14,30 +15,57 @@ import '../../groups/data/group_service.dart';
 /// Devices quieter than this are treated as out of proximity range.
 const int _proximityRssiThreshold = -90;
 
+/// Development Bluetooth SIG company id, matching the native advertiser in
+/// `LocationTrackerService`.
+const int _companyId = 0xFFFF;
+
+/// How often the missing-member list is re-fetched while the tab is open.
+const Duration _refreshInterval = Duration(seconds: 10);
+
+final RegExp _hex16 = RegExp(r'^[0-9a-fA-F]{16}$');
+
+/// 8-byte identity token, mirroring `LocationTrackerService.tokenBytes`, so a
+/// scanned advertisement can be matched to the member it belongs to.
+List<int>? _tokenFor(String? deviceId) {
+  if (deviceId == null || deviceId.isEmpty) return null;
+  if (_hex16.hasMatch(deviceId)) {
+    return List<int>.generate(
+      8,
+      (i) => int.parse(deviceId.substring(i * 2, i * 2 + 2), radix: 16),
+    );
+  }
+  final bytes = utf8.encode(deviceId);
+  return List<int>.generate(8, (i) => i < bytes.length ? bytes[i] : 0);
+}
+
 /// A missing member we want to locate via Bluetooth.
 class _MissingTarget {
   const _MissingTarget({
     required this.userId,
     required this.name,
     required this.groupName,
+    this.deviceId,
   });
 
   final String userId;
   final String name;
   final String groupName;
+  final String? deviceId;
+
+  List<int>? get token => _tokenFor(deviceId);
+  bool get scannable => token != null;
 }
 
-/// A missing member matched to a nearby Bluetooth device.
-class _ProximityHit {
-  const _ProximityHit({
-    required this.target,
-    required this.rssi,
-    required this.deviceName,
-  });
+/// A missing member and the strongest matching advertisement found, if any.
+/// `result == null` means the device is not currently in range.
+class _TargetStatus {
+  const _TargetStatus({required this.target, required this.result});
 
   final _MissingTarget target;
-  final int rssi;
-  final String deviceName;
+  final ScanResult? result;
+
+  bool get detected => result != null;
+  int? get rssi => result?.rssi;
 }
 
 class RadarScreen extends ConsumerStatefulWidget {
@@ -54,9 +82,11 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
   bool _isLoading = true;
   bool _isGuide = false;
   String _scopeLabel = '';
+  bool? _permissionGranted;
 
   StreamSubscription<List<ScanResult>>? _scanResultsSub;
   StreamSubscription<bool>? _scanningSub;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
@@ -65,10 +95,15 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
       if (mounted) setState(() => _isScanning = scanning);
     });
     _loadTargets();
+    // Pick up members who go missing while this tab stays open.
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
+      if (mounted) _loadTargets(silent: true);
+    });
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _scanResultsSub?.cancel();
     _scanningSub?.cancel();
     FlutterBluePlus.stopScan();
@@ -78,7 +113,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
   /// Resolves the current user's role and the missing people they may locate:
   /// guides watch their active expedition; members watch every expedition they
   /// belong to.
-  Future<void> _loadTargets() async {
+  Future<void> _loadTargets({bool silent = false}) async {
     final profile = await ref.read(authServiceProvider).getProfile();
     final role = (profile?['role'] ?? '').toString().toUpperCase();
     final myId = profile?['id']?.toString();
@@ -95,7 +130,8 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
       if (groupId != null) {
         final details = await groupService.getGroupDetails(groupId);
         _collectMissing(details, myId, targets);
-        scopeLabel = (details?['group']?['name'] ?? 'Active expedition').toString();
+        scopeLabel =
+            (details?['group']?['name'] ?? 'Active expedition').toString();
       }
     } else {
       final detailsList = await Future.wait(
@@ -112,10 +148,10 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
       _isGuide = role == 'GUIDE';
       _targets = targets;
       _scopeLabel = scopeLabel;
-      _isLoading = false;
+      if (!silent) _isLoading = false;
     });
 
-    await _startScan();
+    _ensureScanning();
   }
 
   /// Prefers the stored expedition, otherwise the guide's ongoing one.
@@ -154,32 +190,51 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
       final name = (raw['name'] ?? '').toString();
       if (userId == null || userId == myId || name.isEmpty) continue;
       if (out.any((t) => t.userId == userId)) continue;
-      out.add(_MissingTarget(userId: userId, name: name, groupName: groupName));
+      out.add(_MissingTarget(
+        userId: userId,
+        name: name,
+        groupName: groupName,
+        deviceId: raw['device_id']?.toString(),
+      ));
+    }
+  }
+
+  /// Starts tracking whenever there is at least one scannable missing member.
+  void _ensureScanning() {
+    final hasScannable = _targets.any((t) => t.scannable);
+    if (hasScannable && !_isScanning) {
+      _startScan();
+    } else if (!hasScannable && _isScanning) {
+      FlutterBluePlus.stopScan();
     }
   }
 
   Future<void> _startScan() async {
     if (!await FlutterBluePlus.isSupported) return;
 
-    final statuses = await [
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.location,
-    ].request();
+    if (_permissionGranted == null) {
+      final statuses = await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.location,
+      ].request();
 
-    final granted = statuses[Permission.bluetoothScan]?.isGranted == true ||
-        statuses[Permission.bluetoothConnect]?.isGranted == true ||
-        statuses[Permission.location]?.isGranted == true;
-    if (!granted) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Permission is required to find nearby members.',
+      _permissionGranted =
+          statuses[Permission.bluetoothScan]?.isGranted == true ||
+              statuses[Permission.bluetoothConnect]?.isGranted == true ||
+              statuses[Permission.location]?.isGranted == true;
+      if (_permissionGranted == false) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content:
+                  Text('Bluetooth permission is required to find nearby members.'),
             ),
-          ),
-        );
+          );
+        }
+        return;
       }
+    } else if (_permissionGranted == false) {
       return;
     }
 
@@ -189,7 +244,14 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
 
     try {
       await FlutterBluePlus.stopScan();
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 20));
+      // Track missing members by their advertised identity token rather than
+      // by name, and keep RSSI live while the tab is open.
+      await FlutterBluePlus.startScan(
+        withMsd: [MsdFilter(_companyId)],
+        continuousUpdates: true,
+        removeIfGone: const Duration(seconds: 15),
+        androidScanMode: AndroidScanMode.lowLatency,
+      );
     } catch (e) {
       print('Radar scan error: $e');
     }
@@ -203,57 +265,46 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
     }
   }
 
-  /// Missing targets whose Bluetooth device is currently within range.
-  List<_ProximityHit> get _hits {
-    final hits = <_ProximityHit>[];
-    for (final target in _targets) {
-      final targetKey = _normalize(target.name);
-      if (targetKey.isEmpty) continue;
-
+  /// Every missing member paired with the strongest matching advertisement.
+  /// Detected members come first, strongest signal to weakest, then the rest.
+  List<_TargetStatus> get _statuses {
+    final list = _targets.map((target) {
       ScanResult? strongest;
-      for (final result in _scanResults) {
-        if (result.rssi < _proximityRssiThreshold) continue;
-        final deviceKey = _normalize(_deviceName(result));
-        if (deviceKey.isEmpty) continue;
-        if (_namesMatch(deviceKey, targetKey)) {
+      final token = target.token;
+      if (token != null) {
+        for (final result in _scanResults) {
+          if (result.rssi < _proximityRssiThreshold) continue;
+          final data = result.advertisementData.manufacturerData[_companyId];
+          if (data == null || !_tokensMatch(data, token)) continue;
           if (strongest == null || result.rssi > strongest.rssi) {
             strongest = result;
           }
         }
       }
+      return _TargetStatus(target: target, result: strongest);
+    }).toList();
 
-      if (strongest != null) {
-        hits.add(
-          _ProximityHit(
-            target: target,
-            rssi: strongest.rssi,
-            deviceName: _deviceName(strongest),
-          ),
-        );
-      }
-    }
-    hits.sort((a, b) => b.rssi.compareTo(a.rssi));
-    return hits;
+    list.sort((a, b) {
+      if (a.detected != b.detected) return a.detected ? -1 : 1;
+      if (a.detected && b.detected) return b.rssi!.compareTo(a.rssi!);
+      return a.target.name.compareTo(b.target.name);
+    });
+    return list;
   }
 
-  bool _namesMatch(String deviceKey, String targetKey) =>
-      deviceKey == targetKey ||
-      deviceKey.contains(targetKey) ||
-      targetKey.contains(deviceKey);
-
-  String _deviceName(ScanResult result) {
-    if (result.advertisementData.advName.isNotEmpty) {
-      return result.advertisementData.advName;
+  bool _tokensMatch(List<int> data, List<int> token) {
+    if (data.length < token.length) return false;
+    for (var i = 0; i < token.length; i++) {
+      if (data[i] != token[i]) return false;
     }
-    if (result.device.advName.isNotEmpty) return result.device.advName;
-    if (result.device.platformName.isNotEmpty) {
-      return result.device.platformName;
-    }
-    return '';
+    return true;
   }
 
   @override
   Widget build(BuildContext context) {
+    final statuses = _statuses;
+    final detected = statuses.where((s) => s.detected).length;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Proximity Radar'),
@@ -269,21 +320,17 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                _scopeHeader(),
+                _scopeHeader(detected),
                 Expanded(
                   child: RefreshIndicator(
-                    onRefresh: _startScan,
-                    child: _hits.isEmpty
-                        ? _EmptyRadar(
-                            isScanning: _isScanning,
-                            isGuide: _isGuide,
-                            targetCount: _targets.length,
-                          )
+                    onRefresh: () => _loadTargets(silent: true),
+                    child: _targets.isEmpty
+                        ? _EmptyRadar(isGuide: _isGuide)
                         : ListView.builder(
                             padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
-                            itemCount: _hits.length,
+                            itemCount: statuses.length,
                             itemBuilder: (context, index) =>
-                                _RadarTile(hit: _hits[index]),
+                                _RadarTile(status: statuses[index]),
                           ),
                   ),
                 ),
@@ -297,8 +344,9 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
     );
   }
 
-  Widget _scopeHeader() {
+  Widget _scopeHeader(int detected) {
     final scheme = Theme.of(context).colorScheme;
+    final scope = _scopeLabel.isEmpty ? 'Watching' : _scopeLabel;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -324,9 +372,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  _scopeLabel.isEmpty
-                      ? 'Watching ${_targets.length} missing'
-                      : '$_scopeLabel · ${_targets.length} missing',
+                  '$scope · ${_targets.length} missing · $detected detected',
                   style: TextStyle(
                     fontSize: 12,
                     color: scheme.onSurfaceVariant,
@@ -350,85 +396,82 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
   }
 }
 
-String _normalize(String value) =>
-    value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-
 class _RadarTile extends StatelessWidget {
-  const _RadarTile({required this.hit});
+  const _RadarTile({required this.status});
 
-  final _ProximityHit hit;
+  final _TargetStatus status;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final color = _signalColor(hit.rssi);
+    final detected = status.detected;
+    final rssi = status.rssi;
+    final color = detected ? _signalColor(rssi!) : scheme.outline;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha: 0.15),
-          foregroundColor: color,
-          child: Icon(_signalIcon(hit.rssi)),
-        ),
-        title: Text(
-          hit.target.name,
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(hit.target.groupName),
-            if (hit.deviceName.isNotEmpty &&
-                _normalize(hit.deviceName) != _normalize(hit.target.name))
-              Text(
-                'Device: ${hit.deviceName}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            const SizedBox(height: 2),
-            Text(
-              '${_signalLabel(hit.rssi)} · ${hit.rssi} dBm',
-              style: TextStyle(
-                color: color,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
+    return Opacity(
+      opacity: detected ? 1.0 : 0.5,
+      child: Card(
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: color.withValues(alpha: 0.15),
+            foregroundColor: color,
+            child: Icon(
+              detected ? _signalIcon(rssi!) : Icons.bluetooth_searching,
             ),
-          ],
+          ),
+          title: Text(
+            status.target.name,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: detected ? null : scheme.onSurfaceVariant,
+            ),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(status.target.groupName),
+              const SizedBox(height: 2),
+              if (detected)
+                Text(
+                  '${_signalLabel(rssi!)} · $rssi dBm',
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                )
+              else
+                Text(
+                  status.target.scannable ? 'Not in range' : 'No Bluetooth ID',
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 12,
+                  ),
+                ),
+            ],
+          ),
+          trailing: Icon(
+            detected ? Icons.person_pin_circle : Icons.bluetooth_disabled,
+            color: detected ? scheme.primary : scheme.outlineVariant,
+          ),
         ),
-        trailing: Icon(Icons.person_pin_circle, color: scheme.primary),
       ),
     );
   }
 }
 
 class _EmptyRadar extends StatelessWidget {
-  const _EmptyRadar({
-    required this.isScanning,
-    required this.isGuide,
-    required this.targetCount,
-  });
+  const _EmptyRadar({required this.isGuide});
 
-  final bool isScanning;
   final bool isGuide;
-  final int targetCount;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final String message;
-    if (targetCount == 0) {
-      message = isGuide
-          ? 'No missing members in this expedition.'
-          : 'No missing people across your expeditions.';
-    } else {
-      message = isScanning
-          ? 'Looking for missing members nearby...'
-          : 'No missing members nearby. Tap refresh to check again.';
-    }
+    final message = isGuide
+        ? 'No missing members in this expedition.'
+        : 'No missing people across your expeditions.';
 
     return ListView(
       padding: const EdgeInsets.all(32),
@@ -443,7 +486,7 @@ class _EmptyRadar extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Signal appears when a missing member comes close.',
+          'Missing members show up here and are tracked by Bluetooth as you search.',
           textAlign: TextAlign.center,
           style: TextStyle(color: scheme.onSurfaceVariant),
         ),

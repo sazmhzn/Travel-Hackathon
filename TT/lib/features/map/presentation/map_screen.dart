@@ -148,6 +148,33 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ),
       );
     });
+
+    // Membership/status/route changes: refresh the roster live, and eject if
+    // this device is removed from the expedition.
+    socketSvc.groupEventStream.listen((data) {
+      if (data['event'] == 'group_removed') {
+        _handleRemovedFromGroup();
+        return;
+      }
+      if (_groupId != null && data['groupId']?.toString() == _groupId) {
+        _loadExpedition();
+      }
+    });
+  }
+
+  Future<void> _handleRemovedFromGroup() async {
+    final prefs = await SharedPreferences.getInstance();
+    final groupId = _groupId;
+    await prefs.remove('active_group_id');
+    if (groupId != null) {
+      await prefs.remove('roster_$groupId');
+      await prefs.remove('group_status_$groupId');
+      await prefs.remove('missing_threshold_$groupId');
+      ref.read(socketServiceProvider).leaveGroup(groupId);
+    }
+    if (!mounted) return;
+    _showSnack('You were removed from this expedition.');
+    context.go('/groups');
   }
 
   /// Records a peer's position and paints it as a native map marker. Also
@@ -605,6 +632,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         Permission.location,
         Permission.locationAlways, // Added for background service
         Permission.notification,
+        // Needed to advertise this device's identity so a missing member can
+        // be located by Bluetooth, and to scan for others when we search.
+        Permission.bluetoothAdvertise,
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
       ].request();
 
       if (statuses[Permission.location]!.isGranted || statuses[Permission.locationAlways]!.isGranted) {

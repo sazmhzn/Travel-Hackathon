@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { RoutesService } from './routes.service.js';
 import { authenticate, requireRole } from '../auth/auth.middleware.js';
+import { broadcastToGroup } from '../../sockets/gateway.js';
 
 export async function routeRoutes(fastify: FastifyInstance) {
   // POST /api/routes/record - Ingest and process offline-synced track data
@@ -102,6 +103,14 @@ export async function routeRoutes(fastify: FastifyInstance) {
           groupId: body.group_id,
           geoJson: body.geoJson,
         });
+
+        // Let everyone in the expedition see the new route without refreshing.
+        if (route.group_id) {
+          broadcastToGroup(route.group_id, 'route:recorded', {
+            groupId: route.group_id,
+            routeId: route.id,
+          });
+        }
 
         return reply.status(201).send({
           message: 'Spatial path recorded successfully',

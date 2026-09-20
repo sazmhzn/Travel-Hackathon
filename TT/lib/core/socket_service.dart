@@ -14,11 +14,14 @@ class SocketService {
   final _planUpdateController = StreamController<Map<String, dynamic>>.broadcast();
   final _emergencyController = StreamController<Map<String, dynamic>>.broadcast();
   final _nearbyEmergencyController = StreamController<Map<String, dynamic>>.broadcast();
+  // Membership/status/route changes, so screens can refetch instead of going stale.
+  final _groupEventController = StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get peerLocationStream => _peerLocationController.stream;
   Stream<Map<String, dynamic>> get planUpdateStream => _planUpdateController.stream;
   Stream<Map<String, dynamic>> get emergencyStream => _emergencyController.stream;
   Stream<Map<String, dynamic>> get nearbyEmergencyStream => _nearbyEmergencyController.stream;
+  Stream<Map<String, dynamic>> get groupEventStream => _groupEventController.stream;
 
   Future<void> connect() async {
     if (_socket != null && _socket!.connected) return;
@@ -79,6 +82,22 @@ class SocketService {
         _nearbyEmergencyController.add(data);
       }
     });
+
+    // Group membership/status/route changes. `event` tags the kind so a single
+    // stream can drive refetches on any screen.
+    for (final entry in const {
+      'group:member_joined': 'member_joined',
+      'group:member_removed': 'member_removed',
+      'group:updated': 'group_updated',
+      'group:removed': 'group_removed',
+      'route:recorded': 'route_recorded',
+    }.entries) {
+      _socket!.on(entry.key, (data) {
+        if (data is Map) {
+          _groupEventController.add({...data.cast<String, dynamic>(), 'event': entry.value});
+        }
+      });
+    }
 
     _socket!.connect();
   }
