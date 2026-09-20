@@ -334,9 +334,9 @@ export class GroupsService {
     try {
       const res = await query(
         `UPDATE groups
-         SET status = $2,
-             hotspot_ssid = CASE WHEN $2 = 'COMPLETED' THEN NULL ELSE hotspot_ssid END,
-             hotspot_password = CASE WHEN $2 = 'COMPLETED' THEN NULL ELSE hotspot_password END,
+         SET status = $2::text,
+             hotspot_ssid = CASE WHEN $2::text = 'COMPLETED' THEN NULL ELSE hotspot_ssid END,
+             hotspot_password = CASE WHEN $2::text = 'COMPLETED' THEN NULL ELSE hotspot_password END,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $1
          RETURNING *`,

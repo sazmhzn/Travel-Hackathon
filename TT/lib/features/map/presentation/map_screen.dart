@@ -56,10 +56,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _offline = false;
   bool _hotspotActive = false;
   Map<String, String> _identity = const {};
+  // The expedition being navigated. Comes from the route param, falling back
+  // to the active expedition so opening the Map tab keeps its route/context.
+  String? _groupId;
 
   @override
   void initState() {
     super.initState();
+    _groupId = widget.expeditionId;
     _loadRegionInfo().then((_) => _loadExpedition());
     _setupLocationListener();
     _setupDeepLinks();
@@ -139,11 +143,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// Loads the expedition roster so peers can be labelled and the guide
   /// distinguished, then checks whether we need the offline hotspot.
   Future<void> _loadExpedition() async {
-    final groupId = widget.expeditionId;
+    final prefs = await SharedPreferences.getInstance();
+
+    // Fall back to the last active expedition so the map still shows its route
+    // and members when opened directly from the Map tab.
+    if (_groupId == null) {
+      final active = prefs.getString('active_group_id');
+      if (active != null && active.isNotEmpty) _groupId = active;
+    }
+
+    final groupId = _groupId;
     if (groupId == null) return;
 
     // Make sure this expedition is the active one for location broadcasts.
-    final prefs = await SharedPreferences.getInstance();
     await prefs.setString('active_group_id', groupId);
 
     // Fetch the roster, falling back to a cached copy so labels still work
@@ -245,8 +257,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     });
 
     _meshHotspotSub = mesh.hotspotCredentialsStream.listen((data) async {
-      if (widget.expeditionId != null &&
-          data['groupId']?.toString() != widget.expeditionId) {
+      if (_groupId != null && data['groupId']?.toString() != _groupId) {
         return;
       }
       final ssid = data['ssid']?.toString();
@@ -268,7 +279,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// hotspot and shares its credentials; members join it so live locations
   /// keep flowing over the LAN.
   Future<void> _checkConnectivity() async {
-    final groupId = widget.expeditionId;
+    final groupId = _groupId;
     if (groupId == null) {
       if (mounted) setState(() => _offline = false);
       return;
@@ -291,7 +302,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       await ref
           .read(groupServiceProvider)
           .setHotspot(groupId, ssid: ssid, password: password);
-      await mesh.startAdvertising('guide');
+      await mesh.startAdvertising(_identity['deviceId'] ?? 'guide');
       await mesh.broadcastPayload({
         'type': 'hotspot_credentials',
         'groupId': groupId,
@@ -553,8 +564,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   Future<void> _renderRoute() async {
     if (mapController == null) return;
-    final geoJson = await ref.read(routeServiceProvider).getGeoJsonRoute();
-    
+
+    // Prefer the expedition's recorded routes so the guide and every member
+    // see the route for the expedition they are navigating.
+    Map<String, dynamic>? geoJson;
+    final groupId = _groupId;
+    if (groupId != null) {
+      geoJson =
+          await ref.read(routeServiceProvider).getGroupRouteGeoJson(groupId);
+    }
+    geoJson ??= await ref.read(routeServiceProvider).getGeoJsonRoute();
+
     // Track points for off-path calculation
     _activeRoutePoints = RouteService.extractPoints(geoJson);
 
@@ -659,7 +679,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
               // When recording for an expedition, return to it so the newly
               // created route is visible in the expedition's route list.
-              final groupId = widget.expeditionId;
+              final groupId = _groupId;
               if (groupId != null) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -836,8 +856,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: const Icon(Icons.warning),
           ),
           const SizedBox(height: 16),
-          if (_userRole == 'GUIDE' &&
-              (widget.expeditionId != null || _isRecording))
+          if (_userRole == 'GUIDE' && (_groupId != null || _isRecording))
             FloatingActionButton(
               heroTag: 'recordBtn',
               onPressed: () async {
@@ -857,7 +876,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   await ref.read(routeRecordingServiceProvider).startRecording(
                     initialLat: _currentLocation?.latitude,
                     initialLng: _currentLocation?.longitude,
-                    groupId: widget.expeditionId,
+                    groupId: _groupId,
                   );
 
                   // Add a "Start" marker at current position

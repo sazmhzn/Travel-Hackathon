@@ -9,6 +9,39 @@ class RouteService {
   final Ref _ref;
   RouteService(this._ref);
 
+  /// Builds a GeoJSON FeatureCollection from every route recorded in an
+  /// expedition so both the guide and members can see it on the map.
+  Future<Map<String, dynamic>?> getGroupRouteGeoJson(String groupId) async {
+    try {
+      final client = _ref.read(apiClientProvider).client;
+      final response = await client.get('/routes/group/$groupId');
+      final data = response.data;
+      final list = data is Map<String, dynamic> ? data['routes'] : data;
+      if (list is List && list.isNotEmpty) {
+        final features = <Map<String, dynamic>>[];
+        for (final route in list) {
+          final path = route is Map ? route['path'] : null;
+          if (path is Map && path['coordinates'] is List) {
+            features.add({
+              'type': 'Feature',
+              'properties': {
+                'title': route['title'],
+                'routeId': route['id'],
+              },
+              'geometry': path,
+            });
+          }
+        }
+        if (features.isNotEmpty) {
+          return {'type': 'FeatureCollection', 'features': features};
+        }
+      }
+    } catch (e) {
+      print('Error fetching group routes: $e');
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>?> getGeoJsonRoute() async {
     try {
       final prefs = await SharedPreferences.getInstance();

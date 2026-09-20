@@ -30,6 +30,7 @@ class SocketService {
     _socket = IO.io(wsUrl, IO.OptionBuilder()
         .setTransports(['websocket'])
         .disableAutoConnect()
+        .setAuth({'token': token}) // Socket.IO handshake auth (backend reads handshake.auth.token)
         .setExtraHeaders({'Authorization': 'Bearer $token'})
         .setQuery({'token': token}) // Postman specifies token can be in query
         .build()
