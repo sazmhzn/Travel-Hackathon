@@ -474,7 +474,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"Suspension Bridge Panorama Point\",\n  \"description\": \"Great view of Ama Dablam peak before the steep climb\",\n  \"groupId\": \"{{groupId}}\",\n  \"visibility\": \"PUBLIC\",\n  \"lat\": 27.8200,\n  \"lng\": 86.7300,\n  \"mediaUrls\": [\n    \"http://192.168.110.58:9000/travel-media/uploads/ama_dablam_view.jpg\"\n  ]\n}"
+              "raw": "{\n  \"title\": \"Suspension Bridge Panorama Point\",\n  \"description\": \"Great view of Ama Dablam peak before the steep climb\",\n  \"groupId\": \"{{groupId}}\",\n  \"visibility\": \"PUBLIC\",\n  \"lat\": 27.8200,\n  \"lng\": 86.7300,\n  \"mediaUrls\": [\n    \"http://10.207.148.57:9000/travel-media/uploads/ama_dablam_view.jpg\"\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/feed/activities",

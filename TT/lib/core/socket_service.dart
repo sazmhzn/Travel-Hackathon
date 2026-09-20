@@ -34,7 +34,7 @@ class SocketService {
     final token = prefs.getString('jwt_token');
 
     // Backend host machine on the local network (same Wi-Fi/LAN as the device).
-    const wsUrl = 'http://192.168.110.44:3000';
+    const wsUrl = 'http://10.207.148.57:3000';
 
     _socket = IO.io(wsUrl, IO.OptionBuilder()
         .setTransports(['websocket'])

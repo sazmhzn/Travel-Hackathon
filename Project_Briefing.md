@@ -355,8 +355,8 @@ then `ProviderScope → MaterialApp.router`.
 
 | Service | Sub-features |
 | :--- | :--- |
-| `api_client.dart` | Dio client; base URL `API_BASE_URL` dart-define (default `http://192.168.110.44:3000/api`); 10s timeouts; auto-attaches `Authorization: Bearer <jwt_token>`; 401 handler is a stub |
-| `socket_service.dart` | Socket.IO client; hard-coded `ws://192.168.110.44:3000`; token via auth/header/query; streams: peer location, plan updates, emergency, nearby emergency, group events; emits `location:update`, `plan:ack`, join/leave group; auto-rejoin pending group |
+| `api_client.dart` | Dio client; base URL `API_BASE_URL` dart-define (default `http://10.207.148.57:3000/api`); 10s timeouts; auto-attaches `Authorization: Bearer <jwt_token>`; 401 handler is a stub |
+| `socket_service.dart` | Socket.IO client; hard-coded `ws://10.207.148.57:3000`; token via auth/header/query; streams: peer location, plan updates, emergency, nearby emergency, group events; emits `location:update`, `plan:ack`, join/leave group; auto-rejoin pending group |
 | `app_theme.dart` | Design tokens and component themes |
 | `device_identity.dart` | MethodChannel `com.example.tt/device_identity` → deviceId + Bluetooth name; persisted + fallback generated; `searchIdentifier` for radar/mesh |
 | `database_provider.dart` | sqflite `tt_local.db` v2: `draft_routes`, `route_points` |
@@ -577,7 +577,7 @@ Status reflects the actual source analysis. Requirement IDs come from the backen
 | Offline maps | `.pmtiles` are downloaded but never injected into the MapLibre style; map still uses remote `openfreemapLiberty`. Onboarding "download" only persists bounds. |
 | Deep links | `app://location` handled in Dart, but `AndroidManifest.xml` has no intent-filter → non-functional end-to-end. |
 | Auth resilience | `ApiClient` 401 handler is a stub (no refresh/redirect). |
-| Config | Socket URL and API base URL hard-coded to LAN IP `192.168.110.44`. |
+| Config | Socket URL and API base URL hard-coded to LAN IP `10.207.148.57`. |
 | Rescue accuracy | Rescue FAB sends region-center coords (`_initialTarget`), not the current GPS fix. |
 | Telemetry fidelity | Socket location updates send mocked altitude/speed/battery (`0, 0, 100`). |
 | Destination agent | No geocoding step (coords must be pre-seeded); tourism/safety/transport/events providers are stubs; some schema shapes diverge from provider payloads. |

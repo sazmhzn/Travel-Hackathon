@@ -12,7 +12,7 @@ final apiClientProvider = Provider((ref) => ApiClient());
 /// For a physical device, both must be on the same Wi-Fi/LAN.
 const String _apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://192.168.110.44:3000/api',
+  defaultValue: 'http://10.207.148.57:3000/api',
 );
 
 class ApiClient {

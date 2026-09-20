@@ -23,7 +23,7 @@ curl.exe -s http://localhost:3000/health
 ## Flutter app (`TT`)
 
 - Run `flutter analyze lib` after changes.
-- API base URL defaults to `http://192.168.110.44:3000/api`
+- API base URL defaults to `http://10.207.148.57:3000/api`
   (override with `--dart-define=API_BASE_URL=...`).
 
 ## Git
