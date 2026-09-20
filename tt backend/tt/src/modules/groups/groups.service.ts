@@ -526,7 +526,11 @@ export class GroupsService {
     const enriched: GroupMemberStatus[] = members.map((member) => {
       const live: any = liveByUser.get(member.user_id);
       const lastSeen = live?.recordedAt ? new Date(live.recordedAt) : null;
-      const isMissing = !lastSeen || now - lastSeen.getTime() > missingThresholdMs();
+      // Guides are never "missing": a quiet guide is simply out of signal /
+      // off the planned path, not lost. Only members are tracked as missing.
+      const isMissing =
+        member.role !== 'GUIDE' &&
+        (!lastSeen || now - lastSeen.getTime() > missingThresholdMs());
       return {
         ...member,
         isMissing,

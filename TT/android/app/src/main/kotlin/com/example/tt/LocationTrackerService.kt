@@ -67,7 +67,7 @@ class LocationTrackerService : Service(), SensorEventListener {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Travel Tracker Active")
             .setContentText("Your location is being tracked in the background.")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .build()
 
         startForeground(1, notification)

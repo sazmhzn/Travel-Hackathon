@@ -15,6 +15,7 @@ class SocketService {
   final _emergencyController = StreamController<Map<String, dynamic>>.broadcast();
   final _nearbyEmergencyController = StreamController<Map<String, dynamic>>.broadcast();
   final _emergencyResolvedController = StreamController<Map<String, dynamic>>.broadcast();
+  final _memberFoundController = StreamController<Map<String, dynamic>>.broadcast();
   // Membership/status/route changes, so screens can refetch instead of going stale.
   final _groupEventController = StreamController<Map<String, dynamic>>.broadcast();
 
@@ -23,6 +24,7 @@ class SocketService {
   Stream<Map<String, dynamic>> get emergencyStream => _emergencyController.stream;
   Stream<Map<String, dynamic>> get nearbyEmergencyStream => _nearbyEmergencyController.stream;
   Stream<Map<String, dynamic>> get emergencyResolvedStream => _emergencyResolvedController.stream;
+  Stream<Map<String, dynamic>> get memberFoundStream => _memberFoundController.stream;
   Stream<Map<String, dynamic>> get groupEventStream => _groupEventController.stream;
 
   Future<void> connect() async {
@@ -91,6 +93,12 @@ class SocketService {
       }
     });
 
+    _socket!.on('member:found', (data) {
+      if (data is Map<String, dynamic>) {
+        _memberFoundController.add(data);
+      }
+    });
+
     // Group membership/status/route changes. `event` tags the kind so a single
     // stream can drive refetches on any screen.
     for (final entry in const {
@@ -121,6 +129,17 @@ class SocketService {
     if (_pendingGroupId == groupId) _pendingGroupId = null;
     if (_socket?.connected ?? false) {
       _socket!.emit('leave_group', {'groupId': groupId});
+    }
+  }
+
+  /// Tells the expedition that [userId] has been found by a searcher.
+  void markMemberFound(String groupId, String userId, String foundByName) {
+    if (_socket?.connected ?? false) {
+      _socket!.emit('member:found', {
+        'groupId': groupId,
+        'userId': userId,
+        'foundByName': foundByName,
+      });
     }
   }
 

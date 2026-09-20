@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/app_theme.dart';
+import '../../../core/socket_service.dart';
 import '../../auth/data/auth_service.dart';
 import '../../groups/data/group_service.dart';
 
@@ -43,12 +44,14 @@ class _MissingTarget {
   const _MissingTarget({
     required this.userId,
     required this.name,
+    required this.groupId,
     required this.groupName,
     this.deviceId,
   });
 
   final String userId;
   final String name;
+  final String groupId;
   final String groupName;
   final String? deviceId;
 
@@ -82,10 +85,13 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
   bool _isLoading = true;
   bool _isGuide = false;
   String _scopeLabel = '';
+  String _myName = 'A member';
   bool? _permissionGranted;
+  final Set<String> _foundPeers = {};
 
   StreamSubscription<List<ScanResult>>? _scanResultsSub;
   StreamSubscription<bool>? _scanningSub;
+  StreamSubscription<Map<String, dynamic>>? _memberFoundSub;
   Timer? _refreshTimer;
 
   @override
@@ -93,6 +99,14 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
     super.initState();
     _scanningSub = FlutterBluePlus.isScanning.listen((scanning) {
       if (mounted) setState(() => _isScanning = scanning);
+    });
+    // Listen for "found" marks from other searchers.
+    final socket = ref.read(socketServiceProvider);
+    socket.connect();
+    _memberFoundSub = socket.memberFoundStream.listen((data) {
+      final userId = data['userId']?.toString();
+      if (userId == null) return;
+      if (mounted) setState(() => _foundPeers.add(userId));
     });
     _loadTargets();
     // Pick up members who go missing while this tab stays open.
@@ -106,8 +120,23 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
     _refreshTimer?.cancel();
     _scanResultsSub?.cancel();
     _scanningSub?.cancel();
+    _memberFoundSub?.cancel();
     FlutterBluePlus.stopScan();
     super.dispose();
+  }
+
+  /// Marks a missing member as found: removes them from the list and tells the
+  /// rest of the expedition so their radars clear too.
+  void _markFound(_MissingTarget target) {
+    setState(() => _foundPeers.add(target.userId));
+    ref
+        .read(socketServiceProvider)
+        .markMemberFound(target.groupId, target.userId, _myName);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${target.name} marked as found.')),
+      );
+    }
   }
 
   /// Resolves the current user's role and the missing people they may locate:
@@ -117,6 +146,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
     final profile = await ref.read(authServiceProvider).getProfile();
     final role = (profile?['role'] ?? '').toString().toUpperCase();
     final myId = profile?['id']?.toString();
+    final myName = profile?['name']?.toString();
     final groupService = ref.read(groupServiceProvider);
 
     final groups = await groupService.getMyGroups();
@@ -148,6 +178,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
       _isGuide = role == 'GUIDE';
       _targets = targets;
       _scopeLabel = scopeLabel;
+      if (myName != null && myName.isNotEmpty) _myName = myName;
       if (!silent) _isLoading = false;
     });
 
@@ -179,6 +210,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
   ) {
     if (details == null) return;
     final group = details['group'];
+    final groupId = (group is Map ? group['id'] : null)?.toString() ?? '';
     final groupName =
         group is Map ? (group['name'] ?? 'Expedition').toString() : 'Expedition';
     final members = (details['members'] as List?) ?? [];
@@ -189,10 +221,12 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
       final userId = raw['user_id']?.toString();
       final name = (raw['name'] ?? '').toString();
       if (userId == null || userId == myId || name.isEmpty) continue;
+      if (_foundPeers.contains(userId)) continue;
       if (out.any((t) => t.userId == userId)) continue;
       out.add(_MissingTarget(
         userId: userId,
         name: name,
+        groupId: groupId,
         groupName: groupName,
         deviceId: raw['device_id']?.toString(),
       ));
@@ -268,7 +302,9 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
   /// Every missing member paired with the strongest matching advertisement.
   /// Detected members come first, strongest signal to weakest, then the rest.
   List<_TargetStatus> get _statuses {
-    final list = _targets.map((target) {
+    final list = _targets
+        .where((t) => !_foundPeers.contains(t.userId))
+        .map((target) {
       ScanResult? strongest;
       final token = target.token;
       if (token != null) {
@@ -324,13 +360,16 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: () => _loadTargets(silent: true),
-                    child: _targets.isEmpty
+                    child: statuses.isEmpty
                         ? _EmptyRadar(isGuide: _isGuide)
                         : ListView.builder(
                             padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
                             itemCount: statuses.length,
-                            itemBuilder: (context, index) =>
-                                _RadarTile(status: statuses[index]),
+                            itemBuilder: (context, index) => _RadarTile(
+                              status: statuses[index],
+                              onMarkFound: () =>
+                                  _markFound(statuses[index].target),
+                            ),
                           ),
                   ),
                 ),
@@ -397,9 +436,10 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
 }
 
 class _RadarTile extends StatelessWidget {
-  const _RadarTile({required this.status});
+  const _RadarTile({required this.status, required this.onMarkFound});
 
   final _TargetStatus status;
+  final VoidCallback onMarkFound;
 
   @override
   Widget build(BuildContext context) {
@@ -451,9 +491,14 @@ class _RadarTile extends StatelessWidget {
                 ),
             ],
           ),
-          trailing: Icon(
-            detected ? Icons.person_pin_circle : Icons.bluetooth_disabled,
-            color: detected ? scheme.primary : scheme.outlineVariant,
+          trailing: TextButton.icon(
+            onPressed: onMarkFound,
+            icon: const Icon(Icons.check_circle_outline, size: 18),
+            label: const Text('Found'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.success,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
           ),
         ),
       ),

@@ -18,7 +18,7 @@ class OffPathCalculator {
   static final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
   static Future<void> initializeNotifications() async {
-    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('ic_launcher');
+    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('ic_notification');
     const InitializationSettings initializationSettings = InitializationSettings(android: initializationSettingsAndroid);
     await flutterLocalNotificationsPlugin.initialize(
       settings: initializationSettings,
@@ -62,6 +62,7 @@ class OffPathCalculator {
       channelDescription: 'Notifications for when you stray off the route',
       importance: Importance.max,
       priority: Priority.high,
+      icon: 'ic_notification',
       ticker: 'ticker',
     );
     const NotificationDetails platformChannelSpecifics = NotificationDetails(android: androidPlatformChannelSpecifics);

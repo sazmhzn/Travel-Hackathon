@@ -45,6 +45,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   String? _currentUserId;
   bool _isRecording = false;
   LatLng? _currentLocation;
+  // Most recent GPS fix, persisted so SOS can still send a location after a
+  // restart or while waiting for a fresh fix.
+  LatLng? _lastKnownLocation;
   Circle? _startMarkerCircle;
   List<LatLng> _activeRoutePoints = [];
 
@@ -109,6 +112,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       final userName = data['userName'] ?? 'Unknown Member';
       final reason = data['reason'] ?? 'Unknown Reason';
       final groupId = (data['groupId'] ?? _groupId)?.toString();
+      final lat = (data['lat'] as num?)?.toDouble();
+      final lng = (data['lng'] as num?)?.toDouble();
       if (mounted) {
         showDialog(
           context: context,
@@ -116,6 +121,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             title: const Text('🚨 SOS Alert!', style: TextStyle(color: Colors.red)),
             content: Text('$userName has triggered Rescue Mode.\n\nReason: $reason'),
             actions: [
+              if (lat != null && lng != null)
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _focusOnSos(lat, lng, userName);
+                  },
+                  icon: const Icon(Icons.map_outlined, size: 18),
+                  label: const Text('View on map'),
+                ),
               TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Understood'),
@@ -152,6 +166,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       final userName = data['userName'] ?? 'A user';
       final reason = data['reason'] ?? 'Emergency rescue mode activated';
       final distanceKm = (data['distanceKm'] as num?)?.toDouble();
+      final lat = (data['lat'] as num?)?.toDouble();
+      final lng = (data['lng'] as num?)?.toDouble();
       final where = distanceKm == null
           ? 'nearby'
           : 'about ${distanceKm.toStringAsFixed(1)} km away';
@@ -161,6 +177,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           title: const Text('🚨 SOS Nearby', style: TextStyle(color: Colors.red)),
           content: Text('$userName triggered Rescue Mode $where.\n\nReason: $reason'),
           actions: [
+            if (lat != null && lng != null)
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _focusOnSos(lat, lng, userName);
+                },
+                icon: const Icon(Icons.map_outlined, size: 18),
+                label: const Text('View on map'),
+              ),
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Understood'),
@@ -233,6 +258,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       for (final entry in _roster.entries) {
         final userId = entry.key;
         if (userId == _currentUserId) continue;
+        // The guide is never missing — a quiet guide is just off the path.
+        if (entry.value['role'] == 'GUIDE') continue;
         final lastSeen = _peerLastSeen[userId];
         final isMissing = lastSeen == null || now.difference(lastSeen) > threshold;
         if (isMissing && !_missingPeers.contains(userId)) {
@@ -551,10 +578,30 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         geometry: loc,
         iconImage: 'marker-15',
         iconSize: 2.0,
-        iconColor: '#FF00FF',
-      )
+        iconColor: '#FF00FF',      )
     );
     mapController!.animateCamera(CameraUpdate.newLatLngZoom(loc, 14.0));
+  }
+
+  /// Centers the map on an SOS's last known location and drops a red marker so
+  /// the receiver can act on it.
+  Future<void> _focusOnSos(double lat, double lng, String userName) async {
+    if (mapController == null) return;
+    final loc = LatLng(lat, lng);
+    try {
+      await mapController!.animateCamera(CameraUpdate.newLatLngZoom(loc, 15.0));
+      await mapController!.addSymbol(
+        SymbolOptions(
+          geometry: loc,
+          iconImage: 'marker-15',
+          iconSize: 2.2,
+          iconColor: '#FF0000',
+        ),
+      );
+      _showSnack("Showing $userName's last known location.");
+    } catch (e) {
+      print('Failed to focus SOS location: $e');
+    }
   }
 
   void _setupLocationListener() {
@@ -563,9 +610,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       final lat = locationData['latitude'] as double;
       final lng = locationData['longitude'] as double;
       final currentLoc = LatLng(lat, lng);
-      
+
       setState(() {
         _currentLocation = currentLoc;
+        _lastKnownLocation = currentLoc;
+      });
+      // Persist the last known fix so SOS still has a location to send.
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setDouble('last_lat', lat);
+        prefs.setDouble('last_lng', lng);
       });
 
       print("UI received location update: $lat, $lng");
@@ -700,6 +753,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     if (minLat != null && minLng != null && maxLat != null && maxLng != null) {
       _initialTarget = LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
+    }
+
+    // Restore the last known fix for SOS fallback.
+    final lastLat = prefs.getDouble('last_lat');
+    final lastLng = prefs.getDouble('last_lng');
+    if (lastLat != null && lastLng != null) {
+      _lastKnownLocation = LatLng(lastLat, lastLng);
     }
 
     if (_regionName != null) {
@@ -1057,17 +1117,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 return;
               }
 
-              // Prefer the live GPS fix; fall back to the map target only when
-              // we have no position yet. Battery is unknown on the client, so
-              // it is omitted rather than hard-coded.
-              final current = _currentLocation;
-              if (current == null) {
-                _showSnack('No GPS fix yet — sending approximate location.');
+              // Send the freshest fix, else the last known location captured
+              // before signal was lost, else the map target as a last resort.
+              final loc = _currentLocation ?? _lastKnownLocation;
+              if (loc == null) {
+                _showSnack('No location known yet — sending map center.');
               }
               await emergencySvc.triggerRescueMode(
                 groupId,
-                current?.latitude ?? _initialTarget.latitude,
-                current?.longitude ?? _initialTarget.longitude,
+                loc?.latitude ?? _initialTarget.latitude,
+                loc?.longitude ?? _initialTarget.longitude,
                 null,
                 "User triggered rescue mode."
               );

@@ -359,8 +359,10 @@ describe('GroupsService Integration', () => {
     expect(details.group.id).toBe(group.id);
     expect(details.memberCount).toBe(1);
     expect(details.guideCount).toBe(1);
-    expect(details.missingCount).toBe(1); // guide has not sent telemetry yet
-    expect(details.members[0].isMissing).toBe(true);
+    // Guides are never "missing" — a quiet guide is simply off the path.
+    expect(details.members[0].role).toBe('GUIDE');
+    expect(details.members[0].isMissing).toBe(false);
+    expect(details.missingCount).toBe(0);
   });
 
   it('should expose the configurable 5s missing threshold to clients', async () => {
