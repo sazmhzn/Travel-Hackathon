@@ -1,9 +1,10 @@
 import { env } from '../../config/env.js';
 import { query } from '../../config/database.js';
 import { logger } from '../../utils/logger.js';
-import { broadcastToGroup } from '../../sockets/gateway.js';
+import { broadcastToGroup, broadcastToUser } from '../../sockets/gateway.js';
 import { GroupsService } from '../groups/groups.service.js';
 import { AuthService } from '../auth/auth.service.js';
+import { TelemetryService } from '../telemetry/telemetry.service.js';
 
 export interface EmergencyDistressData {
   userId: string;
@@ -54,6 +55,20 @@ export class EmergencyService {
       timestamp: new Date().toISOString(),
     });
 
+    // 2b. Alert every connected user within SOS_RADIUS_KM, even outside the
+    // expedition. Group members already received the group-room broadcast.
+    const memberIds = new Set(members.map((m) => m.user_id));
+    const nearbyNotified = await this.broadcastNearbySos(
+      data.groupId,
+      data.userId,
+      user?.name || 'Group Member',
+      data.lat,
+      data.lng,
+      data.reason,
+      memberIds,
+      alertId
+    );
+
     // 3. Dispatch alert to free Telegram Channel Webhook
     const telegramDelivered = await this.sendTelegramDistressAlert({
       alertId,
@@ -76,11 +91,53 @@ export class EmergencyService {
       groupId: data.groupId,
     });
 
+    logger.info({ alertId, nearbyNotified }, 'SOS nearby proximity fan-out complete');
+
     return {
       alertId,
       telegramDelivered,
       fcmGuidesNotified,
     };
+  }
+
+  /**
+   * Emits `emergency:nearby` to every connected user within `SOS_RADIUS_KM`
+   * of the distress signal, excluding the sender and expedition members (who
+   * already get the group-room broadcast). Returns how many users were alerted.
+   */
+  static async broadcastNearbySos(
+    groupId: string,
+    senderId: string,
+    senderName: string,
+    lat: number,
+    lng: number,
+    reason: string | undefined,
+    excludeUserIds: Set<string>,
+    alertId: string
+  ): Promise<number> {
+    let alerted = 0;
+    try {
+      const nearby = await TelemetryService.findUsersWithinRadius(lat, lng, env.SOS_RADIUS_KM);
+      for (const hit of nearby) {
+        if (hit.userId === senderId || excludeUserIds.has(hit.userId)) continue;
+        broadcastToUser(hit.userId, 'emergency:nearby', {
+          alertId,
+          groupId,
+          userId: senderId,
+          userName: senderName,
+          lat,
+          lng,
+          distanceKm: hit.distanceKm,
+          radiusKm: env.SOS_RADIUS_KM,
+          reason: reason || 'Emergency rescue mode activated',
+          timestamp: new Date().toISOString(),
+        });
+        alerted++;
+      }
+    } catch (err) {
+      logger.error({ err }, 'Failed to broadcast SOS to nearby users');
+    }
+    return alerted;
   }
 
   /**

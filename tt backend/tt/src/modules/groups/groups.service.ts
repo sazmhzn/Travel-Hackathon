@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { query } from '../../config/database.js';
+import { env } from '../../config/env.js';
 import { AuthService } from '../auth/auth.service.js';
 import { TelemetryService } from '../telemetry/telemetry.service.js';
 
@@ -50,11 +51,12 @@ export interface GroupDetails {
   onlineCount: number;
   missingCount: number;
   members: GroupMemberStatus[];
+  missingThresholdSeconds: number;
 }
 
 // A member is considered "missing" when no telemetry ping has been received
-// within this window.
-const MISSING_THRESHOLD_MS = 10 * 60 * 1000;
+// within this window. Configurable via MISSING_THRESHOLD_SECONDS.
+const missingThresholdMs = (): number => env.MISSING_THRESHOLD_SECONDS * 1000;
 
 // In-memory fallback stores for offline dev/test environments
 export const inMemoryGroups = new Map<string, Group>();
@@ -518,7 +520,7 @@ export class GroupsService {
     const enriched: GroupMemberStatus[] = members.map((member) => {
       const live: any = liveByUser.get(member.user_id);
       const lastSeen = live?.recordedAt ? new Date(live.recordedAt) : null;
-      const isMissing = !lastSeen || now - lastSeen.getTime() > MISSING_THRESHOLD_MS;
+      const isMissing = !lastSeen || now - lastSeen.getTime() > missingThresholdMs();
       return {
         ...member,
         isMissing,
@@ -543,6 +545,7 @@ export class GroupsService {
       onlineCount: enriched.filter((m) => !m.isMissing).length,
       missingCount: enriched.filter((m) => m.isMissing).length,
       members: enriched,
+      missingThresholdSeconds: env.MISSING_THRESHOLD_SECONDS,
     };
   }
 

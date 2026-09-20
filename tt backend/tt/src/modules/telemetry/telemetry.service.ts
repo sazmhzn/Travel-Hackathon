@@ -33,6 +33,11 @@ export class TelemetryService {
       await redis.geoadd(geoKey, payload.lng, payload.lat, payload.userId);
       await redis.expire(geoKey, 3600); // 1-hour TTL
 
+      // 1b. Mirror into a global index so SOS can alert any user within range,
+      // regardless of expedition.
+      await redis.geoadd('users:locations', payload.lng, payload.lat, payload.userId);
+      await redis.expire('users:locations', 3600); // 1-hour TTL
+
       // 2. Store detailed telemetry hash
       await redis.hset(userKey, {
         lat: payload.lat.toString(),
@@ -85,6 +90,37 @@ export class TelemetryService {
       return results;
     } catch (err) {
       logger.error({ err, groupId }, 'Failed to read group live locations from Redis');
+      return [];
+    }
+  }
+
+  /**
+   * Finds every user with a live location within `radiusKm` of the point,
+   * returning each user with their distance. Used for SOS proximity fan-out
+   * so people outside the expedition can be alerted too.
+   */
+  static async findUsersWithinRadius(
+    lat: number,
+    lng: number,
+    radiusKm: number
+  ): Promise<Array<{ userId: string; distanceKm: number }>> {
+    const redis: any = isRedisConnected ? redisClient : inMemoryFallback;
+    try {
+      const rows: any[] = await redis.georadius(
+        'users:locations',
+        lng,
+        lat,
+        radiusKm,
+        'km',
+        'WITHDIST',
+        'ASC'
+      );
+      return rows.map((row) => ({
+        userId: Array.isArray(row) ? row[0] : row,
+        distanceKm: Array.isArray(row) ? parseFloat(row[1]) : 0,
+      }));
+    } catch (err) {
+      logger.error({ err }, 'Failed to query users within SOS radius');
       return [];
     }
   }

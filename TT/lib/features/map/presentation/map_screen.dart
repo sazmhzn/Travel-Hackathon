@@ -6,6 +6,7 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
+import 'package:turf/turf.dart' as turf;
 import '../data/offline_map_service.dart';
 import '../data/route_service.dart';
 import '../data/location_tracking_service.dart';
@@ -50,7 +51,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // Expedition live-tracking state
   final Map<String, Map<String, dynamic>> _roster = {};
   final Map<String, LatLng> _peerLocations = {};
-  final Map<String, Offset> _peerScreenPositions = {};
+  final Map<String, Circle> _peerMarkers = {};
+  // Real-time missing detection driven by peer heartbeats (socket + mesh).
+  final Map<String, DateTime> _peerLastSeen = {};
+  final Set<String> _missingPeers = {};
+  Timer? _missingTimer;
+  double _missingThresholdSeconds = 5;
+  String? _groupStatus;
   StreamSubscription? _meshTelemetrySub;
   StreamSubscription? _meshHotspotSub;
   bool _offline = false;
@@ -73,6 +80,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   @override
   void dispose() {
+    _missingTimer?.cancel();
     _meshTelemetrySub?.cancel();
     _meshHotspotSub?.cancel();
     super.dispose();
@@ -116,27 +124,126 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         );
       }
     });
+
+    // SOS from anyone within the alert radius, even outside this expedition.
+    socketSvc.nearbyEmergencyStream.listen((data) {
+      if (!mounted) return;
+      final userName = data['userName'] ?? 'A user';
+      final reason = data['reason'] ?? 'Emergency rescue mode activated';
+      final distanceKm = (data['distanceKm'] as num?)?.toDouble();
+      final where = distanceKm == null
+          ? 'nearby'
+          : 'about ${distanceKm.toStringAsFixed(1)} km away';
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('🚨 SOS Nearby', style: TextStyle(color: Colors.red)),
+          content: Text('$userName triggered Rescue Mode $where.\n\nReason: $reason'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Understood'),
+            )
+          ],
+        ),
+      );
+    });
   }
 
-  /// Records a peer's position and repaints the Flutter overlay badges.
+  /// Records a peer's position and paints it as a native map marker. Also
+  /// refreshes the heartbeat used for real-time missing detection.
   void _onPeerLocation(String userId, LatLng loc) {
     _peerLocations[userId] = loc;
-    _refreshPeerScreenPositions();
-    if (mounted) setState(() {});
+    _peerLastSeen[userId] = DateTime.now();
+    final wasMissing = _missingPeers.remove(userId);
+    _renderPeerMarker(userId, loc);
+    if (wasMissing) {
+      _showSnack('${_peerName(userId)} is back online.');
+      if (mounted) setState(() {});
+    }
   }
 
-  Future<void> _refreshPeerScreenPositions() async {
+  String _peerName(String userId) =>
+      _roster[userId]?['name']?.toString() ?? 'A member';
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Watches peer heartbeats and flags anyone quiet for longer than the
+  /// configured threshold (5s by default). ONGOING expeditions only.
+  void _startMissingWatch() {
+    _missingTimer?.cancel();
+    if (_groupStatus != 'ONGOING') return;
+    _missingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final now = DateTime.now();
+      final threshold =
+          Duration(milliseconds: (_missingThresholdSeconds * 1000).round());
+      var changed = false;
+      for (final entry in _roster.entries) {
+        final userId = entry.key;
+        if (userId == _currentUserId) continue;
+        final lastSeen = _peerLastSeen[userId];
+        final isMissing = lastSeen == null || now.difference(lastSeen) > threshold;
+        if (isMissing && !_missingPeers.contains(userId)) {
+          _missingPeers.add(userId);
+          final loc = _peerLocations[userId];
+          if (loc != null) _renderPeerMarker(userId, loc);
+          _showSnack('${_peerName(userId)} is missing.');
+          changed = true;
+        } else if (!isMissing && _missingPeers.contains(userId)) {
+          _missingPeers.remove(userId);
+          final loc = _peerLocations[userId];
+          if (loc != null) _renderPeerMarker(userId, loc);
+          _showSnack('${_peerName(userId)} is back.');
+          changed = true;
+        }
+      }
+      if (changed) setState(() {});
+    });
+  }
+
+  Future<void> _renderPeerMarkers() async {
     if (mapController == null) return;
     for (final entry in _peerLocations.entries) {
-      try {
-        final screen = await mapController!.toScreenLocation(entry.value);
-        _peerScreenPositions[entry.key] = Offset(
-          screen.x.toDouble(),
-          screen.y.toDouble(),
+      if (entry.key == _currentUserId) continue;
+      await _renderPeerMarker(entry.key, entry.value);
+    }
+  }
+
+  /// Draws (or moves) a peer's marker directly on the map. Peers are never
+  /// rendered as floating overlay widgets. Missing peers turn red.
+  Future<void> _renderPeerMarker(String userId, LatLng loc) async {
+    if (mapController == null || userId == _currentUserId) return;
+
+    final info = _roster[userId];
+    final isGuide = info?['role'] == 'GUIDE';
+    final color = _missingPeers.contains(userId)
+        ? '#E53935'
+        : (isGuide ? '#1D4ED8' : '#EC4899');
+
+    try {
+      final existing = _peerMarkers[userId];
+      if (existing == null) {
+        _peerMarkers[userId] = await mapController!.addCircle(
+          CircleOptions(
+            geometry: loc,
+            circleRadius: 8.0,
+            circleColor: color,
+            circleStrokeWidth: 2.0,
+            circleStrokeColor: '#FFFFFF',
+          ),
         );
-      } catch (_) {
-        // Map not ready yet; skip this frame.
+      } else {
+        await mapController!.updateCircle(
+          existing,
+          CircleOptions(geometry: loc, circleColor: color),
+        );
       }
+    } catch (e) {
+      print('Failed to render peer marker for $userId: $e');
     }
   }
 
@@ -158,6 +265,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     // Make sure this expedition is the active one for location broadcasts.
     await prefs.setString('active_group_id', groupId);
 
+    // Restore the last-known expedition status/threshold so missing detection
+    // keeps working when this device is offline on the mesh.
+    _groupStatus = prefs.getString('group_status_$groupId')?.toUpperCase();
+    _missingThresholdSeconds =
+        prefs.getDouble('missing_threshold_$groupId') ?? 5;
+
     // Fetch the roster, falling back to a cached copy so labels still work
     // once the device goes offline inside the expedition.
     List<Map<String, dynamic>> members = [];
@@ -166,6 +279,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           await ref.read(groupServiceProvider).getGroupDetails(groupId);
       members = (details?['members'] as List? ?? [])
           .cast<Map<String, dynamic>>();
+      final status = (details?['group'] as Map?)?['status']?.toString();
+      if (status != null) _groupStatus = status.toUpperCase();
+      final threshold = details?['missingThresholdSeconds'];
+      if (threshold is num && threshold > 0) {
+        _missingThresholdSeconds = threshold.toDouble();
+      }
+      await prefs.setString('group_status_$groupId', _groupStatus ?? '');
+      await prefs.setDouble(
+          'missing_threshold_$groupId', _missingThresholdSeconds);
       await prefs.setString('roster_$groupId', jsonEncode(members));
     } catch (e) {
       print('Failed to load expedition roster: $e');
@@ -177,6 +299,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     var number = 0;
     _roster.clear();
+    _peerLastSeen.clear();
+    _missingPeers.clear();
     for (final member in members) {
       final userId = member['user_id']?.toString() ?? '';
       if (userId.isEmpty) continue;
@@ -197,9 +321,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       if (userId != _currentUserId && lat is num && lng is num) {
         _peerLocations[userId] = LatLng(lat.toDouble(), lng.toDouble());
       }
+      // Seed the heartbeat with the server's last-seen so a member who went
+      // quiet before this screen opened is flagged immediately.
+      final lastSeenRaw = member['lastSeen'] ?? member['last_seen'];
+      if (userId != _currentUserId && lastSeenRaw != null) {
+        final parsed = DateTime.tryParse(lastSeenRaw.toString());
+        if (parsed != null) _peerLastSeen[userId] = parsed;
+      }
     }
     if (mounted) setState(() {});
-    await _refreshPeerScreenPositions();
+    await _renderPeerMarkers();
+    _startMissingWatch();
 
     // Join the expedition room and start broadcasting our position so every
     // member's live location shows up on the map.
@@ -560,6 +692,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
 
     _renderRoute();
+    _renderPeerMarkers();
   }
 
   Future<void> _renderRoute() async {
@@ -699,47 +832,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  List<Widget> _buildPeerBadges() {
-    final badges = <Widget>[];
-    _peerScreenPositions.forEach((userId, position) {
-      final info = _roster[userId];
-      final isGuide = info?['role'] == 'GUIDE';
-      final isSelf = userId == _currentUserId;
-      final label = isGuide ? 'G' : '${info?['number'] ?? '?'}';
-      final color = isGuide ? const Color(0xFF1D4ED8) : const Color(0xFFEC4899);
-      badges.add(
-        Positioned(
-          left: position.dx - 16,
-          top: position.dy - 16,
-          child: IgnorePointer(
-            child: Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: isSelf ? Colors.white : Colors.white70,
-                  width: isSelf ? 3 : 2,
-                ),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    });
-    return badges;
-  }
-
   Widget _offlineBanner() {
     return Positioned(
       top: 12,
@@ -773,6 +865,59 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ),
       ),
     );
+  }
+
+  /// Banner listing members who stopped pinging, with how far they last were.
+  Widget _missingBanner() {
+    final missing = _roster.entries
+        .where((e) => _missingPeers.contains(e.key))
+        .toList();
+    if (missing.isEmpty) return const SizedBox.shrink();
+
+    final labels = missing.map((e) {
+      final name = e.value['name']?.toString() ?? 'Member';
+      final distance = _distanceLabel(_peerLocations[e.key]);
+      return distance == null ? name : '$name ($distance)';
+    }).join(', ');
+
+    return Positioned(
+      top: _offline ? 64 : 12,
+      left: 12,
+      right: 12,
+      child: Material(
+        color: const Color(0xE6B71C1C),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              const Icon(Icons.person_search, color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Missing: $labels',
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Straight-line distance from the current user to a peer's last location.
+  String? _distanceLabel(LatLng? loc) {
+    final current = _currentLocation;
+    if (loc == null || current == null) return null;
+    final km = turf.distance(
+      turf.Point(
+        coordinates: turf.Position(current.longitude, current.latitude),
+      ),
+      turf.Point(coordinates: turf.Position(loc.longitude, loc.latitude)),
+    );
+    if (km < 1) return '${(km * 1000).round()} m';
+    return '${km.toStringAsFixed(1)} km';
   }
 
   @override
@@ -809,16 +954,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           MapLibreMap(
             onMapCreated: _onMapCreated,
             onStyleLoadedCallback: _onStyleLoaded,
-            onCameraIdle: _refreshPeerScreenPositions,
-            onCameraMove: (_) => _refreshPeerScreenPositions(),
             initialCameraPosition: CameraPosition(
               target: _initialTarget,
               zoom: 12.0,
             ),
             styleString: MapLibreStyles.openfreemapLiberty,
           ),
-          ..._buildPeerBadges(),
           if (_offline) _offlineBanner(),
+          _missingBanner(),
         ],
       ),
       floatingActionButton: Column(

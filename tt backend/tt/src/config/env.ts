@@ -50,6 +50,12 @@ const envSchema = z.object({
   TELEGRAM_EMERGENCY_CHAT_ID: z.string().optional(),
   FIREBASE_SERVICE_ACCOUNT_KEY: z.string().optional(),
 
+  // Live tracking
+  // A member is "missing" when no telemetry ping arrives within this window.
+  MISSING_THRESHOLD_SECONDS: z.coerce.number().positive().default(5),
+  // Radius alerted when a member triggers SOS (non-members within range too).
+  SOS_RADIUS_KM: z.coerce.number().positive().default(20),
+
   // Destination Agent
   DESTINATION_AGENT_ENABLED: z.coerce.boolean().default(true),
   GOOGLE_GEMINI_API_KEY: z.string().optional(),

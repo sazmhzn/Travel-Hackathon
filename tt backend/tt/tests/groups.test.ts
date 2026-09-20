@@ -363,6 +363,23 @@ describe('GroupsService Integration', () => {
     expect(details.members[0].isMissing).toBe(true);
   });
 
+  it('should expose the configurable 5s missing threshold to clients', async () => {
+    const guide = await AuthService.register({
+      email: `guide-${Date.now()}@threshold.com`,
+      password: 'Password123!',
+      name: 'Threshold Guide',
+      role: 'GUIDE',
+    });
+
+    const group = await GroupsService.createGroup({
+      name: 'Threshold Expedition',
+      createdBy: guide.id,
+    });
+
+    const details = await GroupsService.getGroupDetails(group.id, guide.id);
+    expect(details.missingThresholdSeconds).toBe(5);
+  });
+
   it('should seed fallback groups for a guide with no expeditions, once', async () => {
     const guide = await AuthService.register({
       email: `guide-${Date.now()}@fallback.com`,

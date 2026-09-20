@@ -13,10 +13,12 @@ class SocketService {
   final _peerLocationController = StreamController<Map<String, dynamic>>.broadcast();
   final _planUpdateController = StreamController<Map<String, dynamic>>.broadcast();
   final _emergencyController = StreamController<Map<String, dynamic>>.broadcast();
+  final _nearbyEmergencyController = StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get peerLocationStream => _peerLocationController.stream;
   Stream<Map<String, dynamic>> get planUpdateStream => _planUpdateController.stream;
   Stream<Map<String, dynamic>> get emergencyStream => _emergencyController.stream;
+  Stream<Map<String, dynamic>> get nearbyEmergencyStream => _nearbyEmergencyController.stream;
 
   Future<void> connect() async {
     if (_socket != null && _socket!.connected) return;
@@ -69,6 +71,12 @@ class SocketService {
     _socket!.on('emergency:distress', (data) {
       if (data is Map<String, dynamic>) {
         _emergencyController.add(data);
+      }
+    });
+
+    _socket!.on('emergency:nearby', (data) {
+      if (data is Map<String, dynamic>) {
+        _nearbyEmergencyController.add(data);
       }
     });
 
