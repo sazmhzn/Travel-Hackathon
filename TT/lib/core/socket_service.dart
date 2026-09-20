@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
+import 'api_client.dart';
+
 final socketServiceProvider = Provider((ref) => SocketService());
 
 class SocketService {
@@ -33,8 +35,9 @@ class SocketService {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
 
-    // Backend host machine on the local network (same Wi-Fi/LAN as the device).
-    const wsUrl = 'http://10.207.148.57:3000';
+    // Same host as the REST API; strip the trailing `/api` from the base URL so
+    // a single --dart-define=API_BASE_URL points both REST and the socket.
+    final wsUrl = apiBaseUrl.replaceFirst(RegExp(r'/api/?$'), '');
 
     _socket = IO.io(wsUrl, IO.OptionBuilder()
         .setTransports(['websocket'])

@@ -10,9 +10,9 @@ final apiClientProvider = Provider((ref) => ApiClient());
 ///
 /// The default targets the backend host machine on the local network.
 /// For a physical device, both must be on the same Wi-Fi/LAN.
-const String _apiBaseUrl = String.fromEnvironment(
+const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://10.207.148.57:3000/api',
+  defaultValue: 'http://192.168.110.73:3000/api',
 );
 
 class ApiClient {
@@ -24,7 +24,7 @@ class ApiClient {
 
   ApiClient() {
     _dio = Dio(BaseOptions(
-      baseUrl: _apiBaseUrl,
+      baseUrl: apiBaseUrl,
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
     ));

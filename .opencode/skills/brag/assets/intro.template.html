@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>WhiteMountain — Introduction</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ink: #04070d;
+    --text: #e9f1f3;
+    --muted: #90a4ae;
+    --teal: #14b8a6;
+    --teal-deep: #0f766e;
+    --orange: #f97316;
+    --line: rgba(255, 255, 255, 0.08);
+    --dur: 41s;
+    --mono: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+    --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  }
+
+  html, body {
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body { position: relative; }
+
+  /* ---------- background ---------- */
+  .bg { position: absolute; inset: 0; overflow: hidden; }
+
+  .grid {
+    position: absolute; inset: -20%;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 64px 64px;
+    -webkit-mask-image: radial-gradient(ellipse at 50% 42%, #000 28%, transparent 78%);
+    mask-image: radial-gradient(ellipse at 50% 42%, #000 28%, transparent 78%);
+  }
+
+  .aurora { position: absolute; border-radius: 50%; filter: blur(130px); opacity: 0.5; }
+  .a1 { width: 900px; height: 900px; left: -240px; top: -280px; background: var(--teal-deep); animation: drift1 20s ease-in-out infinite alternate; }
+  .a2 { width: 760px; height: 760px; right: -220px; bottom: -260px; background: #9a3d0a; opacity: 0.42; animation: drift2 24s ease-in-out infinite alternate; }
+  @keyframes drift1 { to { transform: translate(150px, 90px) scale(1.12); } }
+  @keyframes drift2 { to { transform: translate(-130px, -80px) scale(1.08); } }
+
+  .peaks { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: auto; opacity: 0.55; }
+
+  /* ---------- HUD ---------- */
+  .hud {
+    position: absolute; top: 52px; left: 64px; right: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 21px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--muted); z-index: 6; opacity: 1;
+    animation: sceneOut 0.7s ease 40.4s forwards;
+  }
+  .hud-brand { display: flex; align-items: center; gap: 16px; color: var(--text); font-weight: 650; }
+  .logo { width: 42px; height: 42px; object-fit: contain; }
+  .hud-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 14px var(--orange); animation: blink 1.8s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+
+  /* ---------- timeline ---------- */
+  #reel { position: absolute; inset: 0; }
+  .scene {
+    --in: 1s; --out: 999s;
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    padding: 130px 140px;
+    opacity: 1;
+    animation: sceneOut 0.7s ease var(--out) forwards;
+  }
+  .content {
+    width: 100%; max-width: 1560px; text-align: center;
+    opacity: 0; transform: translateY(26px);
+    animation: sceneIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) var(--in) forwards;
+  }
+  @keyframes sceneIn { to { opacity: 1; transform: none; } }
+  @keyframes sceneOut { to { opacity: 0; } }
+
+  .rise { opacity: 0; transform: translateY(18px); animation: rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  /* ---------- type ---------- */
+  .kicker {
+    display: inline-block; padding: 12px 24px; margin-bottom: 36px;
+    border: 1px solid rgba(20, 184, 166, 0.45); border-radius: 999px;
+    color: var(--teal); font-size: 22px; letter-spacing: 0.22em; text-transform: uppercase;
+  }
+  h1 { font-size: 152px; line-height: 0.94; font-weight: 800; letter-spacing: -0.035em; }
+  h1 .accent {
+    background: linear-gradient(115deg, var(--teal) 10%, var(--orange) 90%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tagline { margin-top: 30px; font-size: 46px; font-weight: 400; color: #cfdde2; }
+  .tagline b { color: var(--teal); font-weight: 650; }
+
+  .eyebrow { font-size: 23px; letter-spacing: 0.26em; text-transform: uppercase; color: var(--orange); margin-bottom: 22px; }
+  h2 { font-size: 88px; line-height: 1.03; font-weight: 750; letter-spacing: -0.025em; }
+  .lede { margin-top: 28px; font-size: 31px; line-height: 1.52; color: var(--muted); max-width: 760px; }
+
+  .feature { display: grid; grid-template-columns: 1.02fr 0.98fr; gap: 90px; align-items: center; width: 100%; }
+  .feature.left .content { text-align: left; }
+  .scene.left .content { text-align: left; }
+
+  .panel {
+    position: relative; height: 520px; border-radius: 30px;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015));
+    overflow: hidden;
+  }
+  .panel::after {
+    content: ""; position: absolute; inset: 0; border-radius: 30px;
+    box-shadow: inset 0 0 90px rgba(20, 184, 166, 0.08);
+  }
+
+  /* ---------- telemetry visual ---------- */
+  .map {
+    position: absolute; inset: 26px; border-radius: 18px;
+    background-image:
+      linear-gradient(rgba(20, 184, 166, 0.13) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(20, 184, 166, 0.13) 1px, transparent 1px);
+    background-size: 46px 46px;
+  }
+  .route { position: absolute; inset: 26px; }
+  .pin { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 8px rgba(20, 184, 166, 0.18); }
+  .pin.o { background: var(--orange); box-shadow: 0 0 0 8px rgba(249, 115, 22, 0.18); }
+  .ping { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 2px solid var(--teal); animation: ping 2.4s ease-out infinite; }
+  @keyframes ping { 0% { transform: scale(0.35); opacity: 0.9; } 100% { transform: scale(6); opacity: 0; } }
+
+  /* ---------- mesh visual ---------- */
+  .mesh-svg { position: absolute; inset: 0; }
+  .node { fill: var(--teal-deep); stroke: var(--teal); stroke-width: 2; }
+  .node.hub { fill: var(--teal); }
+  .link { stroke: rgba(20, 184, 166, 0.5); stroke-width: 2; stroke-dasharray: 8 10; animation: dash 2s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -36; } }
+
+  /* ---------- radar visual ---------- */
+  .radar { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 26px var(--orange); }
+  .ring { position: absolute; left: 50%; top: 50%; border-radius: 50%; border: 2px solid rgba(20, 184, 166, 0.55); transform: translate(-50%, -50%); }
+  .ring.pulse { animation: ringpulse 3s ease-out infinite; }
+  @keyframes ringpulse { 0% { transform: translate(-50%, -50%) scale(0.3); opacity: 0.9; } 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.06; } }
+  .sweep {
+    position: absolute; left: 50%; top: 50%; width: 320px; height: 320px; margin: -320px 0 0 0;
+    transform-origin: bottom center;
+    background: conic-gradient(from 0deg, rgba(20, 184, 166, 0.32), transparent 55%);
+    animation: spin 4s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .blip { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 16px var(--orange); animation: blink 1.6s ease-in-out infinite; }
+
+  /* ---------- emergency channels ---------- */
+  .channels { display: grid; gap: 16px; margin-top: 34px; }
+  .channel {
+    display: flex; align-items: center; gap: 22px;
+    padding: 20px 26px; border: 1px solid var(--line); border-radius: 16px;
+    background: rgba(255, 255, 255, 0.03); font-size: 27px;
+  }
+  .channel .step {
+    flex: none; width: 46px; height: 46px; border-radius: 12px;
+    display: grid; place-items: center; font-size: 22px; font-weight: 700;
+    background: rgba(20, 184, 166, 0.16); color: var(--teal);
+  }
+  .channel:nth-child(4) .step { background: rgba(249, 115, 22, 0.18); color: var(--orange); }
+
+  /* ---------- itinerary ---------- */
+  .days { display: grid; gap: 14px; margin-top: 32px; }
+  .day { display: flex; align-items: center; gap: 20px; padding: 18px 24px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.03); font-size: 25px; color: #cfe3e7; }
+  .day .score { margin-left: auto; font-family: var(--mono); font-size: 22px; color: var(--teal); }
+
+  /* ---------- closing ---------- */
+  .badges { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin-top: 44px; max-width: 1200px; }
+  .badge { padding: 14px 26px; border: 1px solid var(--line); border-radius: 999px; font-size: 24px; color: #c6d6db; background: rgba(255, 255, 255, 0.03); }
+  .badge.hot { border-color: rgba(249, 115, 22, 0.5); color: var(--orange); }
+  .closing-line { margin-top: 46px; font-size: 32px; color: var(--muted); }
+
+  /* ---------- progress ---------- */
+  .progress { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(255, 255, 255, 0.06); z-index: 7; }
+  .progress-bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--teal), var(--orange)); animation: progress var(--dur) linear forwards; }
+  @keyframes progress { to { width: 100%; } }
+</style>
+</head>
+<body>
+  <div class="bg">
+    <div class="aurora a1"></div>
+    <div class="aurora a2"></div>
+    <div class="grid"></div>
+    <svg class="peaks" viewBox="0 0 1920 420" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 420 L300 190 L520 330 L820 90 L1080 300 L1340 150 L1620 320 L1920 170 L1920 420 Z" fill="rgba(15,118,110,0.16)" />
+      <path d="M0 420 L260 280 L560 380 L900 210 L1180 360 L1500 250 L1760 380 L1920 300 L1920 420 Z" fill="rgba(4,7,13,0.72)" />
+    </svg>
+  </div>
+
+  <div class="hud">
+    <div class="hud-brand">
+      <img class="logo" src="../../../../TT/assets/images/wandersafe_logo.png" alt="" onerror="this.style.display='none'" />
+      <span>WhiteMountain</span>
+    </div>
+    <div class="hud-dot"></div>
+  </div>
+
+  <main id="reel">
+    <!-- 1 · Brand -->
+    <section class="scene" style="--in:.2s;--out:4.4s">
+      <div class="content">
+        <div class="kicker rise" style="animation-delay:.45s">Travel &amp; Emergency Platform</div>
+        <h1 class="rise" style="animation-delay:.65s">White<span class="accent">Mountain</span></h1>
+        <p class="tagline rise" style="animation-delay:1s">Outdoor travel. <b>Never lose anyone.</b></p>
+      </div>
+    </section>
+
+    <!-- 2 · Live telemetry -->
+    <section class="scene left" style="--in:5.2s;--out:10.4s">
+      <div class="content feature">
+        <div>
+          <div class="eyebrow rise" style="animation-delay:5.45s">01 — Live tracking</div>
+          <h2 class="rise" style="animation-delay:5.6s">Every member,<br />on one live map</h2>
+          <p class="lede rise" style="animation-delay:5.9s">Guides stream each traveller's position over WebSockets, backed by PostGIS history and Redis geo-cache. See the whole group move in real time.</p>
+        </div>
+        <div class="panel">
+          <div class="map"></div>
+          <div class="route">
+            <svg class="mesh-svg" viewBox="0 0 520 520" preserveAspectRatio="none">
+              <polyline points="90,400 180,300 280,340 360,190 450,140" fill="none" stroke="rgba(20,184,166,0.55)" stroke-width="3" stroke-dasharray="10 12" />
+            </svg>
+            <div class="ping" style="left:71%;top:27%"></div>
+            <div class="pin" style="left:69%;top:27%"></div>
+            <div class="pin" style="left:35%;top:58%"></div>
+            <div class="pin o" style="left:17%;top:77%"></div>
+            <div class="pin" style="left:54%;top:65%"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 · Offline mesh -->
+    <section class="scene left" style="--in:11.2s;--out:16.4s">
+      <div class="content feature">
+        <div>
+          <div class="eyebrow rise" style="animation-delay:11.45s">02 — Offline first</div>
+          <h2 class="rise" style="animation-delay:11.6s">No signal,<br />no problem</h2>
+          <p class="lede rise" style="animation-delay:11.9s">When the network disappears, devices keep talking through Nearby Connections and a local Wi-Fi hotspot, then sync once a link returns.</p>
+        </div>
+        <div class="panel">
+          <svg class="mesh-svg" viewBox="0 0 520 520">
+            <line class="link" x1="130" y1="150" x2="270" y2="230" />
+            <line class="link" x1="270" y1="230" x2="400" y2="150" />
+            <line class="link" x1="270" y1="230" x2="170" y2="360" />
+            <line class="link" x1="270" y1="230" x2="390" y2="360" />
+            <line class="link" x1="170" y1="360" x2="390" y2="360" />
+            <circle class="node" cx="130" cy="150" r="20" />
+            <circle class="node hub" cx="270" cy="230" r="30" />
+            <circle class="node" cx="400" cy="150" r="20" />
+            <circle class="node" cx="170" cy="360" r="20" />
+            <circle class="node" cx="390" cy="360" r="20" />
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 · BLE radar -->
+    <section class="scene left" style="--in:17.2s;--out:22.4s">
+      <div class="content feature">
+        <div>
+          <div class="eyebrow rise" style="animation-delay:17.45s">03 — Rescue radar</div>
+          <h2 class="rise" style="animation-delay:17.6s">Find them by<br />signal strength</h2>
+          <p class="lede rise" style="animation-delay:17.9s">A BLE proximity radar turns a missing teammate into a direction and a distance, so a search converges on the last few metres.</p>
+        </div>
+        <div class="panel">
+          <div class="sweep"></div>
+          <div class="ring" style="width:130px;height:130px"></div>
+          <div class="ring" style="width:270px;height:270px"></div>
+          <div class="ring" style="width:410px;height:410px"></div>
+          <div class="ring pulse" style="width:410px;height:410px"></div>
+          <div class="blip" style="left:63%;top:37%"></div>
+          <div class="radar"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 · Emergency escalation -->
+    <section class="scene left" style="--in:23.2s;--out:29.9s">
+      <div class="content feature">
+        <div>
+          <div class="eyebrow rise" style="animation-delay:23.45s">04 — Emergency</div>
+          <h2 class="rise" style="animation-delay:23.6s">Four channels<br />of escalation</h2>
+          <p class="lede rise" style="animation-delay:23.9s">One tap fans the distress signal outward until a human answers.</p>
+        </div>
+        <div class="channels">
+          <div class="channel rise" style="animation-delay:24.2s"><span class="step">1</span> In-app broadcast to the group</div>
+          <div class="channel rise" style="animation-delay:24.45s"><span class="step">2</span> Nearby-user fan-out by radius</div>
+          <div class="channel rise" style="animation-delay:24.7s"><span class="step">3</span> FCM push to every guide</div>
+          <div class="channel rise" style="animation-delay:24.95s"><span class="step">4</span> Telegram rescue channel</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 · AI destination agent -->
+    <section class="scene left" style="--in:30.7s;--out:36.4s">
+      <div class="content feature">
+        <div>
+          <div class="eyebrow rise" style="animation-delay:30.95s">05 — Destination agent</div>
+          <h2 class="rise" style="animation-delay:31.1s">A plan for<br />tomorrow</h2>
+          <p class="lede rise" style="animation-delay:31.4s">Weather, places and routes are gathered and synthesized by Gemini into a scored, day-by-day itinerary.</p>
+        </div>
+        <div class="days">
+          <div class="day rise" style="animation-delay:31.7s">Day 1 · Acclimatise &amp; valley walk <span class="score">92</span></div>
+          <div class="day rise" style="animation-delay:31.95s">Day 2 · Suspension bridge trail <span class="score">88</span></div>
+          <div class="day rise" style="animation-delay:32.2s">Day 3 · Ama Dablam viewpoint <span class="score">95</span></div>
+          <div class="day rise" style="animation-delay:32.45s">Day 4 · High camp push <span class="score">81</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 · Closing -->
+    <section class="scene" style="--in:37.2s">
+      <div class="content">
+        <div class="kicker rise" style="animation-delay:37.45s">Built for the mountains</div>
+        <h1 class="rise" style="animation-delay:37.65s">Adventure <span class="accent">without</span> the fear</h1>
+        <div class="badges">
+          <span class="badge rise" style="animation-delay:38s">Flutter</span>
+          <span class="badge rise" style="animation-delay:38.1s">Riverpod</span>
+          <span class="badge rise" style="animation-delay:38.2s">MapLibre</span>
+          <span class="badge rise" style="animation-delay:38.3s">Fastify</span>
+          <span class="badge rise" style="animation-delay:38.4s">Socket.IO</span>
+          <span class="badge rise" style="animation-delay:38.5s">PostGIS</span>
+          <span class="badge rise" style="animation-delay:38.6s">Redis</span>
+          <span class="badge rise" style="animation-delay:38.7s">MinIO</span>
+          <span class="badge hot rise" style="animation-delay:38.8s">Gemini</span>
+        </div>
+        <p class="closing-line rise" style="animation-delay:39.2s">WhiteMountain — outdoor travel, tracked and never alone.</p>
+      </div>
+    </section>
+  </main>
+
+  <div class="progress"><div class="progress-bar"></div></div>
+
+  <script>
+    window.__brag = { duration: 41000, title: "WhiteMountain — Introduction" };
+  </script>
+</body>
+</html>

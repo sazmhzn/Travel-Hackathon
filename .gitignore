@@ -4,3 +4,5 @@ dist/
 *.log
 coverage/
 .DS_Store
+brag-out/
+.opencode/skills/brag/.tmp/
