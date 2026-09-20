@@ -16,6 +16,10 @@ const String _apiBaseUrl = String.fromEnvironment(
 );
 
 class ApiClient {
+  /// Invoked when the server rejects the token (401) so the app can return to
+  /// the login screen. Wired up in main.dart.
+  static VoidCallback? onUnauthorized;
+
   late final Dio _dio;
 
   ApiClient() {
@@ -46,8 +50,14 @@ class ApiClient {
           }
           return handler.next(options);
         },
-        onError: (DioException e, handler) {
-          // Handle global errors here (e.g., 401 Unauthorized)
+        onError: (DioException e, handler) async {
+          // Expired/invalid token: clear it and send the user back to login
+          // instead of silently returning empty data everywhere.
+          if (e.response?.statusCode == 401) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.remove('jwt_token');
+            ApiClient.onUnauthorized?.call();
+          }
           return handler.next(e);
         }
       )

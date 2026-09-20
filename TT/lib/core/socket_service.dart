@@ -14,6 +14,7 @@ class SocketService {
   final _planUpdateController = StreamController<Map<String, dynamic>>.broadcast();
   final _emergencyController = StreamController<Map<String, dynamic>>.broadcast();
   final _nearbyEmergencyController = StreamController<Map<String, dynamic>>.broadcast();
+  final _emergencyResolvedController = StreamController<Map<String, dynamic>>.broadcast();
   // Membership/status/route changes, so screens can refetch instead of going stale.
   final _groupEventController = StreamController<Map<String, dynamic>>.broadcast();
 
@@ -21,6 +22,7 @@ class SocketService {
   Stream<Map<String, dynamic>> get planUpdateStream => _planUpdateController.stream;
   Stream<Map<String, dynamic>> get emergencyStream => _emergencyController.stream;
   Stream<Map<String, dynamic>> get nearbyEmergencyStream => _nearbyEmergencyController.stream;
+  Stream<Map<String, dynamic>> get emergencyResolvedStream => _emergencyResolvedController.stream;
   Stream<Map<String, dynamic>> get groupEventStream => _groupEventController.stream;
 
   Future<void> connect() async {
@@ -80,6 +82,12 @@ class SocketService {
     _socket!.on('emergency:nearby', (data) {
       if (data is Map<String, dynamic>) {
         _nearbyEmergencyController.add(data);
+      }
+    });
+
+    _socket!.on('emergency:resolved', (data) {
+      if (data is Map<String, dynamic>) {
+        _emergencyResolvedController.add(data);
       }
     });
 
@@ -143,5 +151,6 @@ class SocketService {
     _socket?.disconnect();
     _socket?.dispose();
     _socket = null;
+    _pendingGroupId = null;
   }
 }

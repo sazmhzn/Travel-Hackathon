@@ -63,15 +63,26 @@ class RouteService {
     return null;
   }
 
-  /// Converts a GeoJSON Map to a List of LatLng for math operations
+  /// Converts a GeoJSON FeatureCollection or a bare LineString geometry to a
+  /// List of LatLng for math operations.
   static List<LatLng> extractPoints(Map<String, dynamic>? geoJson) {
     if (geoJson == null) return [];
     try {
-      final features = geoJson['features'] as List;
-      if (features.isEmpty) return [];
-      final geometry = features[0]['geometry'];
+      dynamic geometry;
+      if (geoJson['type'] == 'FeatureCollection') {
+        final features = geoJson['features'] as List;
+        if (features.isEmpty) return [];
+        geometry = features[0]['geometry'];
+      } else {
+        geometry = geoJson;
+      }
       final coords = geometry['coordinates'] as List;
-      return coords.map((c) => LatLng(c[1] as double, c[0] as double)).toList();
+      return coords
+          .map((c) => LatLng(
+                (c[1] as num).toDouble(),
+                (c[0] as num).toDouble(),
+              ))
+          .toList();
     } catch (e) {
       return [];
     }

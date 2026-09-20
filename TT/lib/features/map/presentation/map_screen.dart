@@ -108,6 +108,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     socketSvc.emergencyStream.listen((data) {
       final userName = data['userName'] ?? 'Unknown Member';
       final reason = data['reason'] ?? 'Unknown Reason';
+      final groupId = (data['groupId'] ?? _groupId)?.toString();
       if (mounted) {
         showDialog(
           context: context,
@@ -118,11 +119,31 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Understood'),
-              )
+              ),
+              if (groupId != null && groupId.isNotEmpty)
+                FilledButton(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    final done = await ref
+                        .read(emergencyServiceProvider)
+                        .resolveEmergency(groupId);
+                    if (mounted) {
+                      _showSnack(done
+                          ? 'Rescue mode marked resolved.'
+                          : 'Could not resolve rescue mode.');
+                    }
+                  },
+                  child: const Text('Mark resolved'),
+                ),
             ],
           )
         );
       }
+    });
+
+    // Someone resolved the distress call: clear it for everyone.
+    socketSvc.emergencyResolvedStream.listen((_) {
+      if (mounted) _showSnack('Rescue mode resolved.');
     });
 
     // SOS from anyone within the alert radius, even outside this expedition.
@@ -446,7 +467,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     final online = await ref.read(hotspotServiceProvider).hasInternet();
     if (mounted) setState(() => _offline = !online);
-    if (online) return;
+    if (online) {
+      // Back online: flush any routes recorded while offline.
+      ref.read(routeRecordingServiceProvider).syncPendingRoutes();
+      return;
+    }
 
     final mesh = ref.read(meshNetworkServiceProvider);
     if (_userRole == 'GUIDE') {
@@ -474,12 +499,27 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-  Future<void> _renderNewRouteFromSocket(Map<String, dynamic> geoJson) async {
-    if (mapController == null) return;
+  Future<void> _renderNewRouteFromSocket(dynamic routeData) async {
+    if (mapController == null || routeData is! Map) return;
+    // The socket may deliver a bare LineString geometry; wrap it so MapLibre
+    // renders it and off-path detection can use the new points immediately.
+    final geoJson = routeData['type'] == 'FeatureCollection'
+        ? Map<String, dynamic>.from(routeData)
+        : <String, dynamic>{
+            'type': 'FeatureCollection',
+            'features': [
+              {
+                'type': 'Feature',
+                'properties': {},
+                'geometry': routeData,
+              }
+            ],
+          };
     try {
       await mapController!.setGeoJsonSource("route-source", geoJson);
       // Ensure it's orange as requested for socket updates
       await mapController!.setLayerProperties("route-layer", LineLayerProperties(lineColor: "#FF8C00"));
+      _activeRoutePoints = RouteService.extractPoints(geoJson);
     } catch (e) {
       print("Failed to render updated route: $e");
     }
@@ -551,6 +591,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               setState(() {
                   _isOffPath = result.isOffPath;
               });
+              // Alert only when the member first drifts off the route.
+              if (result.isOffPath) {
+                OffPathCalculator.triggerAlert(result.distanceMeters);
+              }
           }
           _updateUserMarker(currentLoc, result.isOffPath);
           _drawReturnPath(currentLoc, result.nearestPointOnRoute, result.isOffPath);
@@ -1013,12 +1057,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 return;
               }
 
-              // Trigger emergency with real groupId
+              // Prefer the live GPS fix; fall back to the map target only when
+              // we have no position yet. Battery is unknown on the client, so
+              // it is omitted rather than hard-coded.
+              final current = _currentLocation;
+              if (current == null) {
+                _showSnack('No GPS fix yet — sending approximate location.');
+              }
               await emergencySvc.triggerRescueMode(
-                groupId, 
-                _initialTarget.latitude, 
-                _initialTarget.longitude, 
-                15, 
+                groupId,
+                current?.latitude ?? _initialTarget.latitude,
+                current?.longitude ?? _initialTarget.longitude,
+                null,
                 "User triggered rescue mode."
               );
               if (mounted) {

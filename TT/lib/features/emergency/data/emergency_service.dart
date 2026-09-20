@@ -8,7 +8,7 @@ class EmergencyService {
 
   EmergencyService(this._ref);
 
-  Future<bool> triggerRescueMode(String groupId, double lat, double lng, int battery, String reason) async {
+  Future<bool> triggerRescueMode(String groupId, double lat, double lng, int? battery, String reason) async {
     // 1. Tell Native Kotlin layer to maximize Nearby Connections P2P Advertising
     // (This would be another MethodChannel call to NearbyMeshService)
 
@@ -21,13 +21,31 @@ class EmergencyService {
           "groupId": groupId,
           "lat": lat,
           "lng": lng,
-          "battery": battery,
+          "battery": ?battery,
           "reason": reason
         }
       );
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
       print("Failed to trigger emergency over network (offline?): $e");
+      return false;
+    }
+  }
+
+  /// Clears active Rescue Mode alerts for the expedition (optionally one user).
+  Future<bool> resolveEmergency(String groupId, {String? userId}) async {
+    try {
+      final client = _ref.read(apiClientProvider).client;
+      final response = await client.post(
+        '/emergency/resolve',
+        data: {
+          "groupId": groupId,
+          "userId": ?userId,
+        },
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print("Failed to resolve emergency: $e");
       return false;
     }
   }

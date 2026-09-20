@@ -2,6 +2,7 @@ import { env } from '../../config/env.js';
 import { query } from '../../config/database.js';
 import { logger } from '../../utils/logger.js';
 import { broadcastToGroup, broadcastToUser } from '../../sockets/gateway.js';
+import { getFirebaseMessaging } from '../../config/firebase.js';
 import { GroupsService } from '../groups/groups.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { TelemetryService } from '../telemetry/telemetry.service.js';
@@ -98,6 +99,45 @@ export class EmergencyService {
       telegramDelivered,
       fcmGuidesNotified,
     };
+  }
+
+  /**
+   * Resolves (clears) active SOS alerts for a group, optionally scoped to a
+   * single user. Broadcasts `emergency:resolved` so clients can drop the alert.
+   */
+  static async resolveEmergency(
+    groupId: string,
+    userId: string | undefined,
+    requesterId: string
+  ): Promise<{ resolved: number; alertIds: string[] }> {
+    const members = await GroupsService.getGroupMembers(groupId);
+    if (!members.some((m) => m.user_id === requesterId)) {
+      throw new Error('You are not a member of this group');
+    }
+
+    let alertIds: string[] = [];
+    try {
+      const res = await query(
+        `UPDATE emergency_triggers
+            SET status = 'RESOLVED', resolved_at = CURRENT_TIMESTAMP
+          WHERE group_id = $1 AND status = 'ACTIVE'
+            AND ($2::uuid IS NULL OR user_id = $2::uuid)
+          RETURNING id`,
+        [groupId, userId || null]
+      );
+      alertIds = res.rows.map((r) => r.id);
+    } catch (dbErr) {
+      logger.debug({ dbErr }, 'Emergency resolve skipped in fallback mode');
+    }
+
+    broadcastToGroup(groupId, 'emergency:resolved', {
+      groupId,
+      userId: userId || null,
+      alertIds,
+      timestamp: new Date().toISOString(),
+    });
+
+    return { resolved: alertIds.length, alertIds };
   }
 
   /**
@@ -210,16 +250,46 @@ export class EmergencyService {
     guides: any[],
     payload: { title: string; body: string; lat: number; lng: number; userId: string; groupId: string }
   ): Promise<number> {
-    let notifiedCount = 0;
+    const tokens = guides
+      .map((g) => g.fcm_token)
+      .filter((t): t is string => typeof t === 'string' && t.length > 0);
 
-    for (const guide of guides) {
-      if (guide.fcm_token) {
-        logger.info({ guideId: guide.user_id, token: guide.fcm_token }, 'Dispatching FCM push to guide');
-        // If firebase-admin initialized, call messaging().send()
-        notifiedCount++;
-      }
+    if (tokens.length === 0) return 0;
+
+    const messaging = getFirebaseMessaging();
+    if (!messaging) {
+      logger.info({ count: tokens.length }, 'FCM not configured; skipping guide push');
+      return 0;
     }
 
-    return notifiedCount;
+    try {
+      const response = await messaging.sendEachForMulticast({
+        tokens,
+        notification: { title: payload.title, body: payload.body },
+        data: {
+          type: 'emergency',
+          lat: String(payload.lat),
+          lng: String(payload.lng),
+          userId: payload.userId,
+          groupId: payload.groupId,
+        },
+        android: {
+          priority: 'high',
+          notification: { channelId: 'emergency', sound: 'default' },
+        },
+      });
+
+      if (response.failureCount > 0) {
+        logger.warn(
+          { failureCount: response.failureCount, total: tokens.length },
+          'Some FCM guide notifications failed'
+        );
+      }
+      logger.info({ successCount: response.successCount }, 'FCM guide notifications dispatched');
+      return response.successCount;
+    } catch (err) {
+      logger.error({ err }, 'Failed to dispatch FCM push notifications');
+      return 0;
+    }
   }
 }

@@ -121,6 +121,20 @@ class RouteRecordingService {
     await syncRoute(routeId);
   }
 
+  /// Retries every completed-but-unsynced draft route. Called on app start and
+  /// from the background sync worker so offline recordings eventually reach the
+  /// server instead of being lost.
+  Future<void> syncPendingRoutes() async {
+    final db = await _ref.read(databaseProvider.future);
+    final rows = await db.query(
+      'draft_routes',
+      where: 'isCompleted = 1 AND isSynced = 0',
+    );
+    for (final row in rows) {
+      await syncRoute(row['id'] as int);
+    }
+  }
+
   Future<void> syncRoute(int draftId) async {
     final db = await _ref.read(databaseProvider.future);
     final draftRows = await db.query(
