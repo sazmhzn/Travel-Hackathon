@@ -70,6 +70,10 @@ final router = GoRouter(
           path: '/map',
           builder: (context, state) => MapScreen(
             expeditionId: state.uri.queryParameters['expeditionId'],
+            focusLat: double.tryParse(
+                state.uri.queryParameters['focusLat'] ?? ''),
+            focusLng: double.tryParse(
+                state.uri.queryParameters['focusLng'] ?? ''),
           ),
         ),
         GoRoute(

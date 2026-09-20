@@ -15,11 +15,7 @@ void main() async {
   // A rejected/expired token drops the user back to the login screen.
   ApiClient.onUnauthorized = () => router.go('/login');
 
-  runApp(
-    const ProviderScope(
-      child: MyApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
@@ -31,6 +27,7 @@ class MyApp extends StatelessWidget {
       title: 'Travel & Emergency App',
       theme: AppTheme.light,
       routerConfig: router,
+      debugShowCheckedModeBanner: false,
     );
   }
 }

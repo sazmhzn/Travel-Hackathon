@@ -22,11 +22,16 @@ import '../data/hotspot_service.dart';
 import '../../../core/device_identity.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
-  const MapScreen({super.key, this.expeditionId});
+  const MapScreen({super.key, this.expeditionId, this.focusLat, this.focusLng});
 
   /// Expedition the guide is navigating for. When set, guides may record and
   /// save routes against this expedition.
   final String? expeditionId;
+
+  /// Optional coordinate to center on when opened (e.g. a missing member's
+  /// last known location).
+  final double? focusLat;
+  final double? focusLng;
 
   @override
   ConsumerState<MapScreen> createState() => _MapScreenState();
@@ -125,10 +130,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 TextButton.icon(
                   onPressed: () {
                     Navigator.pop(context);
-                    _focusOnSos(lat, lng, userName);
+                    _focusOnSos(lat, lng);
                   },
                   icon: const Icon(Icons.map_outlined, size: 18),
-                  label: const Text('View on map'),
+                  label: const Text('Go to last known location'),
                 ),
               TextButton(
                 onPressed: () => Navigator.pop(context),
@@ -181,10 +186,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               TextButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
-                  _focusOnSos(lat, lng, userName);
+                  _focusOnSos(lat, lng);
                 },
                 icon: const Icon(Icons.map_outlined, size: 18),
-                label: const Text('View on map'),
+                label: const Text('Go to last known location'),
               ),
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -226,6 +231,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// Records a peer's position and paints it as a native map marker. Also
   /// refreshes the heartbeat used for real-time missing detection.
   void _onPeerLocation(String userId, LatLng loc) {
+    // Ignore live positions unless the expedition is running.
+    if (_groupStatus != 'ONGOING') return;
     _peerLocations[userId] = loc;
     _peerLastSeen[userId] = DateTime.now();
     final wasMissing = _missingPeers.remove(userId);
@@ -234,6 +241,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       _showSnack('${_peerName(userId)} is back online.');
       if (mounted) setState(() {});
     }
+  }
+
+  /// Removes all peer markers and cached positions (e.g. once an expedition is
+  /// completed, members must no longer see each other's live locations).
+  Future<void> _clearPeers() async {
+    _peerLocations.clear();
+    _peerLastSeen.clear();
+    _missingPeers.clear();
+    if (mapController != null) {
+      for (final circle in _peerMarkers.values) {
+        try {
+          await mapController!.removeCircle(circle);
+        } catch (_) {
+          // Map may already be disposed; ignore.
+        }
+      }
+    }
+    _peerMarkers.clear();
+    if (mounted) setState(() {});
   }
 
   String _peerName(String userId) =>
@@ -373,6 +399,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
 
     var number = 0;
+    final ongoing = _groupStatus == 'ONGOING';
     _roster.clear();
     _peerLastSeen.clear();
     _missingPeers.clear();
@@ -390,10 +417,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         'isMissing': member['isMissing'] == true,
       };
       // Seed last-known positions so everyone appears immediately, not only
-      // after their next live update.
+      // after their next live update (only while the expedition runs).
       final lat = member['lat'];
       final lng = member['lng'];
-      if (userId != _currentUserId && lat is num && lng is num) {
+      if (ongoing && userId != _currentUserId && lat is num && lng is num) {
         _peerLocations[userId] = LatLng(lat.toDouble(), lng.toDouble());
       }
       // Seed the heartbeat with the server's last-seen so a member who went
@@ -405,20 +432,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       }
     }
     if (mounted) setState(() {});
-    await _renderPeerMarkers();
+    if (ongoing) {
+      await _renderPeerMarkers();
+    } else {
+      await _clearPeers();
+    }
     _startMissingWatch();
 
-    // Join the expedition room and start broadcasting our position so every
-    // member's live location shows up on the map.
+    // Join the expedition room either way so we still receive status changes
+    // (and so a completed expedition can be restarted live).
     final socket = ref.read(socketServiceProvider);
     await socket.connect();
     socket.joinGroup(groupId);
-    if (!_isTracking) {
+
+    // Live location sharing only happens while the expedition is running.
+    if (ongoing && !_isTracking) {
+      await _toggleTracking();
+    } else if (!ongoing && _isTracking) {
       await _toggleTracking();
     }
 
     _identity = await ref.read(deviceIdentityProvider).get();
-    _setupExpeditionMesh();
+    if (ongoing) {
+      _setupExpeditionMesh();
+    } else {
+      await ref.read(meshNetworkServiceProvider).stopMesh();
+    }
 
     // Draw the expedition's route for both the guide and the members.
     await _renderRoute();
@@ -487,7 +526,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// keep flowing over the LAN.
   Future<void> _checkConnectivity() async {
     final groupId = _groupId;
-    if (groupId == null) {
+    if (groupId == null || _groupStatus != 'ONGOING') {
       if (mounted) setState(() => _offline = false);
       return;
     }
@@ -583,9 +622,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     mapController!.animateCamera(CameraUpdate.newLatLngZoom(loc, 14.0));
   }
 
-  /// Centers the map on an SOS's last known location and drops a red marker so
-  /// the receiver can act on it.
-  Future<void> _focusOnSos(double lat, double lng, String userName) async {
+  /// Centers the map on a last known location and drops a red marker so the
+  /// receiver can act on it.
+  Future<void> _focusOnSos(double lat, double lng) async {
     if (mapController == null) return;
     final loc = LatLng(lat, lng);
     try {
@@ -598,9 +637,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           iconColor: '#FF0000',
         ),
       );
-      _showSnack("Showing $userName's last known location.");
+      _showSnack('Centered on last known location.');
     } catch (e) {
-      print('Failed to focus SOS location: $e');
+      print('Failed to focus last known location: $e');
     }
   }
 
@@ -829,6 +868,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     _renderRoute();
     _renderPeerMarkers();
+
+    // When opened via "Go to last known location", center on it.
+    final focusLat = widget.focusLat;
+    final focusLng = widget.focusLng;
+    if (focusLat != null && focusLng != null) {
+      _focusOnSos(focusLat, focusLng);
+    }
   }
 
   Future<void> _renderRoute() async {

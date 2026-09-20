@@ -47,6 +47,8 @@ class _MissingTarget {
     required this.groupId,
     required this.groupName,
     this.deviceId,
+    this.lat,
+    this.lng,
   });
 
   final String userId;
@@ -54,9 +56,12 @@ class _MissingTarget {
   final String groupId;
   final String groupName;
   final String? deviceId;
+  final double? lat;
+  final double? lng;
 
   List<int>? get token => _tokenFor(deviceId);
   bool get scannable => token != null;
+  bool get hasLocation => lat != null && lng != null;
 }
 
 /// A missing member and the strongest matching advertisement found, if any.
@@ -137,6 +142,23 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
         SnackBar(content: Text('${target.name} marked as found.')),
       );
     }
+  }
+
+  /// Opens the map centered on the member's last known location (used when the
+  /// device is not in Bluetooth proximity).
+  void _goToLastKnown(_MissingTarget target) {
+    if (!target.hasLocation) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No last known location for ${target.name}.')),
+      );
+      return;
+    }
+    final params = {
+      if (target.groupId.isNotEmpty) 'expeditionId': target.groupId,
+      'focusLat': target.lat.toString(),
+      'focusLng': target.lng.toString(),
+    };
+    context.go(Uri(path: '/map', queryParameters: params).toString());
   }
 
   /// Resolves the current user's role and the missing people they may locate:
@@ -229,6 +251,8 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
         groupId: groupId,
         groupName: groupName,
         deviceId: raw['device_id']?.toString(),
+        lat: (raw['lat'] as num?)?.toDouble(),
+        lng: (raw['lng'] as num?)?.toDouble(),
       ));
     }
   }
@@ -365,11 +389,15 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
                         : ListView.builder(
                             padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
                             itemCount: statuses.length,
-                            itemBuilder: (context, index) => _RadarTile(
-                              status: statuses[index],
-                              onMarkFound: () =>
-                                  _markFound(statuses[index].target),
-                            ),
+                            itemBuilder: (context, index) {
+                              final status = statuses[index];
+                              return _RadarTile(
+                                status: status,
+                                onMarkFound: () => _markFound(status.target),
+                                onGoToLastKnown: () =>
+                                    _goToLastKnown(status.target),
+                              );
+                            },
                           ),
                   ),
                 ),
@@ -436,10 +464,15 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
 }
 
 class _RadarTile extends StatelessWidget {
-  const _RadarTile({required this.status, required this.onMarkFound});
+  const _RadarTile({
+    required this.status,
+    required this.onMarkFound,
+    required this.onGoToLastKnown,
+  });
 
   final _TargetStatus status;
   final VoidCallback onMarkFound;
+  final VoidCallback onGoToLastKnown;
 
   @override
   Widget build(BuildContext context) {
@@ -491,15 +524,26 @@ class _RadarTile extends StatelessWidget {
                 ),
             ],
           ),
-          trailing: TextButton.icon(
-            onPressed: onMarkFound,
-            icon: const Icon(Icons.check_circle_outline, size: 18),
-            label: const Text('Found'),
-            style: TextButton.styleFrom(
-              foregroundColor: AppTheme.success,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-            ),
-          ),
+          trailing: detected
+              ? TextButton.icon(
+                  onPressed: onMarkFound,
+                  icon: const Icon(Icons.check_circle_outline, size: 18),
+                  label: const Text('Found'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.success,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                )
+              : (status.target.hasLocation
+                  ? TextButton.icon(
+                      onPressed: onGoToLastKnown,
+                      icon: const Icon(Icons.place_outlined, size: 18),
+                      label: const Text('Last location'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    )
+                  : const SizedBox.shrink()),
         ),
       ),
     );
