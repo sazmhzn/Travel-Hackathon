@@ -3,17 +3,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'config/app_config.dart';
+import 'storage/storage_keys.dart';
+
 final apiClientProvider = Provider((ref) => ApiClient());
 
-/// Overridable at build time:
-/// `flutter run --dart-define=API_BASE_URL=http://192.168.1.20:3000/api`
-///
-/// The default targets the backend host machine on the local network.
-/// For a physical device, both must be on the same Wi-Fi/LAN.
-const String apiBaseUrl = String.fromEnvironment(
-  'API_BASE_URL',
-  defaultValue: 'http://192.168.1.69:3000/api',
-);
+/// REST base URL, owned by [AppConfig] (overridable with
+/// `--dart-define=API_BASE_URL=...`). Kept as a top-level constant because
+/// `socket_service.dart` derives the WebSocket origin from it.
+const String apiBaseUrl = AppConfig.baseUrl;
 
 class ApiClient {
   /// Invoked when the server rejects the token (401) so the app can return to
@@ -43,7 +41,7 @@ class ApiClient {
       InterceptorsWrapper(
         onRequest: (options, handler) async {
           final prefs = await SharedPreferences.getInstance();
-          final token = prefs.getString('jwt_token');
+          final token = prefs.getString(StorageKeys.jwtToken);
           
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
@@ -55,7 +53,7 @@ class ApiClient {
           // instead of silently returning empty data everywhere.
           if (e.response?.statusCode == 401) {
             final prefs = await SharedPreferences.getInstance();
-            await prefs.remove('jwt_token');
+            await prefs.remove(StorageKeys.jwtToken);
             ApiClient.onUnauthorized?.call();
           }
           return handler.next(e);
