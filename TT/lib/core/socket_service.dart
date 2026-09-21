@@ -148,6 +148,13 @@ class SocketService {
     }
   }
 
+  /// Feeds a synthetic peer fix into the same stream the socket fills, so the
+  /// map renders it exactly like a real member (used by the local test
+  /// expedition simulation).
+  void injectPeerLocation(String userId, double lat, double lng) {
+    _peerLocationController.add({'userId': userId, 'lat': lat, 'lng': lng});
+  }
+
   void emitLocationUpdate(String groupId, double lat, double lng, double altitude, double speed, int battery) {
     if (_socket?.connected ?? false) {
       _socket!.emit('location:update', {

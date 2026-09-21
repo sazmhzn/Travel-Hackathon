@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../features/map/data/location_tracking_service.dart';
 
-class MainNavigationWrapper extends StatelessWidget {
+class MainNavigationWrapper extends ConsumerStatefulWidget {
   final Widget child;
 
   const MainNavigationWrapper({
@@ -11,9 +14,40 @@ class MainNavigationWrapper extends StatelessWidget {
   });
 
   @override
+  ConsumerState<MainNavigationWrapper> createState() =>
+      _MainNavigationWrapperState();
+}
+
+class _MainNavigationWrapperState extends ConsumerState<MainNavigationWrapper> {
+  @override
+  void initState() {
+    super.initState();
+    _resumeTrackingIfExpeditionOngoing();
+  }
+
+  /// Location must stay ON for the whole lifetime of a running expedition, no
+  /// matter which tab is visible. The shell starts the native service as soon
+  /// as the app opens (given permission) so peers never lose a member between
+  /// screens.
+  Future<void> _resumeTrackingIfExpeditionOngoing() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!prefs.containsKey('jwt_token')) return;
+
+    final groupId = prefs.getString('active_group_id');
+    if (groupId == null || groupId.isEmpty) return;
+
+    final status = prefs.getString('group_status_$groupId')?.toUpperCase();
+    if (status != 'ONGOING') return;
+
+    if (!await Permission.location.isGranted) return;
+
+    await ref.read(locationTrackingServiceProvider).startTracking();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: child,
+      body: widget.child,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _calculateSelectedIndex(context),
         onDestinationSelected: (index) {
@@ -54,17 +88,10 @@ class MainNavigationWrapper extends StatelessWidget {
     return 0;
   }
 
-  Future<void> _onItemTapped(int index, BuildContext context) async {
-    final current = GoRouterState.of(context).matchedLocation;
+  void _onItemTapped(int index, BuildContext context) {
     switch (index) {
       case 0:
-        // Returning to the map from the Expeditions tab drops the expedition
-        // picked with "Use for navigation" so the map is not stuck to it.
-        if (current.startsWith('/groups')) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.remove('active_group_id');
-        }
-        if (context.mounted) context.go('/map');
+        context.go('/map');
         break;
       case 1:
         context.go('/groups');

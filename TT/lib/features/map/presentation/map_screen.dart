@@ -11,6 +11,8 @@ import '../data/offline_map_service.dart';
 import '../data/route_service.dart';
 import '../data/location_tracking_service.dart';
 import '../data/off_path_calculator.dart';
+import '../../test/data/test_expedition.dart';
+import '../../test/data/simulation_service.dart';
 import '../../emergency/data/emergency_service.dart';
 import '../../social/data/deep_link_service.dart';
 import '../../../core/app_theme.dart';
@@ -39,6 +41,12 @@ class MapScreen extends ConsumerStatefulWidget {
 }
 
 class _MapScreenState extends ConsumerState<MapScreen> {
+  // Members may stray this far from the planned route before the expedition
+  // tells them to get back on the path. It is the corridor width around the
+  // route LineString (a point is "inside" when its distance to the line is
+  // within this radius).
+  static const double _offPathGraceMeters = 50.0;
+
   MapLibreMapController? mapController;
   bool _isDownloaded = false;
   String? _regionName;
@@ -61,6 +69,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   final Map<String, Map<String, dynamic>> _roster = {};
   final Map<String, LatLng> _peerLocations = {};
   final Map<String, Circle> _peerMarkers = {};
+  // Off-route state per peer, computed with the same calculator the signed-in
+  // user's own position uses.
+  final Map<String, OffPathResult> _peerOffPath = {};
   // Real-time missing detection driven by peer heartbeats (socket + mesh).
   final Map<String, DateTime> _peerLastSeen = {};
   final Set<String> _missingPeers = {};
@@ -69,6 +80,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   String? _groupStatus;
   StreamSubscription? _meshTelemetrySub;
   StreamSubscription? _meshHotspotSub;
+  StreamSubscription? _locationSub;
+  StreamSubscription? _offPathSub;
   bool _offline = false;
   bool _hotspotActive = false;
   Map<String, String> _identity = const {};
@@ -92,6 +105,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _missingTimer?.cancel();
     _meshTelemetrySub?.cancel();
     _meshHotspotSub?.cancel();
+    _locationSub?.cancel();
+    _offPathSub?.cancel();
+    ref.read(simulationServiceProvider).stop();
     super.dispose();
   }
 
@@ -247,6 +263,78 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       _showSnack('${_peerName(userId)} is back online.');
       if (mounted) setState(() {});
     }
+    _checkPeerOffPath(userId);
+  }
+
+  /// Runs the shared off-path calculator against a peer's latest fix and, on the
+  /// transition to off-route, flags the marker and draws its way back.
+  void _checkPeerOffPath(String userId) {
+    if (_activeRoutePoints.isEmpty) return;
+    if (_roster[userId]?['role'] == 'GUIDE') {
+      _peerOffPath.remove(userId);
+      return;
+    }
+    final loc = _peerLocations[userId];
+    if (loc == null) return;
+
+    final result = OffPathCalculator.checkOffPath(
+      loc,
+      _activeRoutePoints,
+      _offPathGraceMeters,
+    );
+    if (result == null) return;
+
+    final wasOff = _peerOffPath[userId]?.isOffPath ?? false;
+    _peerOffPath[userId] = result;
+    if (result.isOffPath != wasOff) {
+      if (result.isOffPath) {
+        _showSnack(
+          '${_peerName(userId)} is off the route '
+          '(${result.distanceMeters.toStringAsFixed(0)} m).',
+        );
+      }
+      _renderPeerMarker(userId, loc);
+      if (mounted) setState(() {});
+    }
+    // Keep the drawn line tracking the peer while it is off the route, and
+    // clear it once it rejoins.
+    if (result.isOffPath || wasOff) {
+      _renderPeerReturnPaths();
+    }
+  }
+
+  /// Draws a dashed shortest-path line from every off-route peer back to the
+  /// nearest point on the route.
+  Future<void> _renderPeerReturnPaths() async {
+    if (mapController == null) return;
+
+    final features = <Map<String, dynamic>>[];
+    for (final entry in _peerOffPath.entries) {
+      if (!entry.value.isOffPath) continue;
+      final loc = _peerLocations[entry.key];
+      if (loc == null) continue;
+      final nearest = entry.value.nearestPointOnRoute;
+      features.add({
+        'type': 'Feature',
+        'properties': {'userId': entry.key},
+        'geometry': {
+          'type': 'LineString',
+          'coordinates': [
+            [loc.longitude, loc.latitude],
+            [nearest.longitude, nearest.latitude],
+          ],
+        },
+      });
+    }
+
+    try {
+      await mapController!.setGeoJsonSource('peer-return-source', {
+        'type': 'FeatureCollection',
+        'features': features,
+      });
+    } catch (e) {
+      print('Failed to render peer return paths: $e');
+    }
   }
 
   /// Removes all peer markers and cached positions (e.g. once an expedition is
@@ -255,6 +343,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _peerLocations.clear();
     _peerLastSeen.clear();
     _missingPeers.clear();
+    _peerOffPath.clear();
     if (mapController != null) {
       for (final circle in _peerMarkers.values) {
         try {
@@ -265,6 +354,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       }
     }
     _peerMarkers.clear();
+    try {
+      await mapController?.setGeoJsonSource('peer-return-source', {
+        'type': 'FeatureCollection',
+        'features': const [],
+      });
+    } catch (_) {
+      // Map may already be disposed; ignore.
+    }
     if (mounted) setState(() {});
   }
 
@@ -276,8 +373,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  /// Member-facing error toast shown when they drift off the expedition route.
-  /// The red line drawn back to the route is the shortest path to it.
+  /// Member-facing error toast shown when they leave the expedition route
+  /// corridor. The red line drawn back to the route is the shortest path to it.
   void _showOffPathToast(double distanceMeters) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -285,8 +382,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ..showSnackBar(
         SnackBar(
           content: Text(
-            'You are off the route by ${distanceMeters.toStringAsFixed(0)} m. '
-            'Follow the red line back to the path.',
+            'You are ${distanceMeters.toStringAsFixed(0)} m off the route. '
+            'Get back on the path shown on the map.',
           ),
           behavior: SnackBarBehavior.floating,
           backgroundColor: AppTheme.danger,
@@ -346,9 +443,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     final info = _roster[userId];
     final isGuide = info?['role'] == 'GUIDE';
+    final isOffPath = _peerOffPath[userId]?.isOffPath ?? false;
     final color = _missingPeers.contains(userId)
         ? '#E53935'
-        : (isGuide ? '#1D4ED8' : '#EC4899');
+        : isOffPath
+            ? '#FF3D00'
+            : (isGuide ? '#1D4ED8' : '#EC4899');
 
     try {
       final existing = _peerMarkers[userId];
@@ -387,6 +487,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     final groupId = _groupId;
     if (groupId == null) return;
+
+    // The TEST-Expedition is entirely local: no backend, socket, mesh or GPS.
+    if (groupId == TestExpedition.id) {
+      await _loadTestExpedition();
+      return;
+    }
 
     // Make sure this expedition is the active one for location broadcasts.
     await prefs.setString('active_group_id', groupId);
@@ -488,6 +594,41 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     await _renderRoute();
 
     await _checkConnectivity();
+  }
+
+  /// Sets up the local, backend-free TEST-Expedition: a fake roster and route,
+  /// then starts the position simulator. No socket, mesh, hotspot or native GPS
+  /// is involved — the simulated members arrive through the normal peer stream.
+  Future<void> _loadTestExpedition() async {
+    _groupStatus = 'ONGOING';
+    _missingThresholdSeconds = 30;
+
+    _roster.clear();
+    _peerLocations.clear();
+    _peerLastSeen.clear();
+    _missingPeers.clear();
+    _peerOffPath.clear();
+
+    var number = 0;
+    for (final actor in TestExpedition.actors) {
+      final isGuide = actor.role == 'GUIDE';
+      if (!isGuide) number++;
+      _roster[actor.userId] = {
+        'name': actor.name,
+        'role': actor.role,
+        'number': isGuide ? null : number,
+        'deviceId': null,
+        'bluetoothName': null,
+        'isMissing': false,
+      };
+    }
+
+    await _renderRoute();
+
+    if (mounted) setState(() {});
+    _startMissingWatch();
+
+    ref.read(simulationServiceProvider).start();
   }
 
   /// Advertises this device under its own identifier and, if any member is
@@ -611,6 +752,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       // Ensure it's orange as requested for socket updates
       await mapController!.setLayerProperties("route-layer", LineLayerProperties(lineColor: "#FF8C00"));
       _activeRoutePoints = RouteService.extractPoints(geoJson);
+      ref.read(locationTrackingServiceProvider).setActiveRoute(_activeRoutePoints);
     } catch (e) {
       print("Failed to render updated route: $e");
     }
@@ -670,7 +812,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   void _setupLocationListener() {
     print("Setting up UI location listener...");
-    ref.read(locationTrackingServiceProvider).locationStream.listen((locationData) {
+    _locationSub = ref.read(locationTrackingServiceProvider).locationStream.listen((locationData) {
       final lat = locationData['latitude'] as double;
       final lng = locationData['longitude'] as double;
       final currentLoc = LatLng(lat, lng);
@@ -701,21 +843,20 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
       // Check off-path (Only if NOT recording and an active route exists)
       if (!_isRecording && _activeRoutePoints.isNotEmpty) {
-        final result = OffPathCalculator.checkOffPath(currentLoc, _activeRoutePoints, 50.0);
+        final result = OffPathCalculator.checkOffPath(
+          currentLoc,
+          _activeRoutePoints,
+          _offPathGraceMeters,
+        );
         
         if (result != null) {
           if (result.isOffPath != _isOffPath) {
               setState(() {
                   _isOffPath = result.isOffPath;
               });
-              // Alert members (never the guide) only on the first drift off an
-              // ongoing expedition's route. The guide still sees the shortest
-              // return path but is not alerted.
-              final isMember = _userRole != 'GUIDE';
-              if (result.isOffPath && isMember && _groupStatus == 'ONGOING') {
-                _showOffPathToast(result.distanceMeters);
-                OffPathCalculator.triggerAlert(result.distanceMeters);
-              }
+              // The alert itself is raised by LocationTrackingService so it
+              // also fires while another tab is visible; here we only keep the
+              // marker colour and return line in sync.
           }
           _updateUserMarker(currentLoc, result.isOffPath);
           _drawReturnPath(currentLoc, result.nearestPointOnRoute, result.isOffPath);
@@ -731,6 +872,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         _drawReturnPath(currentLoc, currentLoc, false);
       }
 
+    });
+
+    // Off-route errors are decided by the tracking service (which runs for the
+    // whole expedition); surface them here as the member-facing toast.
+    _offPathSub = ref.read(locationTrackingServiceProvider).offPathStream.listen((alert) {
+      final distance = (alert['distanceMeters'] as num?)?.toDouble() ?? 0;
+      _showOffPathToast(distance);
     });
   }
 
@@ -838,6 +986,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _userRole = profile?['user']?['role'] ?? profile?['role']; // Handle different response shapes
     _currentUserId =
         (profile?['user']?['id'] ?? profile?['id'])?.toString();
+    ref.read(locationTrackingServiceProvider).setViewerRole(_userRole);
 
     setState(() {});
   }
@@ -891,12 +1040,27 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ),
       );
       await mapController!.setLayerVisibility("return-path-layer", false);
+
+      await mapController!.addGeoJsonSource("peer-return-source", emptyGeoJson);
+      await mapController!.addLineLayer(
+        "peer-return-source",
+        "peer-return-layer",
+        LineLayerProperties(
+          lineColor: "#FF3D00",
+          lineWidth: 3.0,
+          lineDasharray: [2.0, 2.0],
+        ),
+      );
     } catch (e) {
       print("Error initializing map layers: $e");
     }
 
-    _renderRoute();
+    await _renderRoute();
     _renderPeerMarkers();
+
+    if (_groupId == TestExpedition.id) {
+      await _fitCameraToRoute();
+    }
 
     // When opened via "Go to last known location", center on it.
     final focusLat = widget.focusLat;
@@ -908,6 +1072,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   Future<void> _renderRoute() async {
     if (mapController == null) return;
+
+    // The TEST-Expedition ships its own hardcoded route.
+    if (_groupId == TestExpedition.id) {
+      final testGeoJson = TestExpedition.routeGeoJson();
+      _activeRoutePoints = RouteService.extractPoints(testGeoJson);
+      ref
+          .read(locationTrackingServiceProvider)
+          .setActiveRoute(_activeRoutePoints);
+      try {
+        await mapController!.setGeoJsonSource("route-source", testGeoJson);
+      } catch (e) {
+        print('Error rendering test route: $e');
+      }
+      return;
+    }
 
     // Prefer the expedition's recorded routes so the guide and every member
     // see the route for the expedition they are navigating.
@@ -921,12 +1100,47 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     // Track points for off-path calculation
     _activeRoutePoints = RouteService.extractPoints(geoJson);
+    ref.read(locationTrackingServiceProvider).setActiveRoute(_activeRoutePoints);
 
     try {
       final data = geoJson ?? {"type": "FeatureCollection", "features": []};
       await mapController!.setGeoJsonSource("route-source", data);
     } catch (e) {
       print("Error rendering route: $e");
+    }
+  }
+
+  /// Frames the map on the test route so the whole walk is visible (the test
+  /// expedition has no live GPS fix to auto-center on).
+  Future<void> _fitCameraToRoute() async {
+    if (mapController == null || _activeRoutePoints.isEmpty) return;
+
+    var minLat = _activeRoutePoints.first.latitude;
+    var maxLat = minLat;
+    var minLng = _activeRoutePoints.first.longitude;
+    var maxLng = minLng;
+    for (final p in _activeRoutePoints) {
+      minLat = p.latitude < minLat ? p.latitude : minLat;
+      maxLat = p.latitude > maxLat ? p.latitude : maxLat;
+      minLng = p.longitude < minLng ? p.longitude : minLng;
+      maxLng = p.longitude > maxLng ? p.longitude : maxLng;
+    }
+
+    try {
+      await mapController!.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          LatLngBounds(
+            southwest: LatLng(minLat, minLng),
+            northeast: LatLng(maxLat, maxLng),
+          ),
+          left: 60,
+          top: 120,
+          right: 60,
+          bottom: 120,
+        ),
+      );
+    } catch (e) {
+      print('Failed to fit camera to test route: $e');
     }
   }
 
@@ -1011,8 +1225,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 description: descController.text,
               );
 
-              // Also stop the underlying location tracking service to save battery
-              if (_isTracking) {
+              // Location must stay ON for a running expedition, so only stop
+              // tracking when this recording was standalone (no expedition).
+              final inExpedition =
+                  _groupId != null && _groupStatus == 'ONGOING';
+              if (_isTracking && !inExpedition) {
                 await _toggleTracking();
               }
 
@@ -1117,6 +1334,46 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
+  /// Banner listing members currently off the route and how far they strayed.
+  Widget _offRouteBanner() {
+    final strayed =
+        _peerOffPath.entries.where((e) => e.value.isOffPath).toList();
+    if (strayed.isEmpty) return const SizedBox.shrink();
+
+    final labels = strayed
+        .map((e) =>
+            '${_peerName(e.key)} (${e.value.distanceMeters.toStringAsFixed(0)} m)')
+        .join(', ');
+
+    final anyMissing =
+        _roster.keys.any((id) => _missingPeers.contains(id));
+    return Positioned(
+      top: (_offline ? 64 : 12) + (anyMissing ? 52 : 0),
+      left: 12,
+      right: 12,
+      child: Material(
+        color: const Color(0xE6E65100),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              const Icon(Icons.wrong_location_outlined,
+                  color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Off route: $labels',
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Straight-line distance from the current user to a peer's last location.
   String? _distanceLabel(LatLng? loc) {
     final current = _currentLocation;
@@ -1173,6 +1430,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
           if (_offline) _offlineBanner(),
           _missingBanner(),
+          _offRouteBanner(),
         ],
       ),
       floatingActionButton: Column(

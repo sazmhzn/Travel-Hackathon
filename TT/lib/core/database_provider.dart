@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 final databaseProvider = FutureProvider<Database>((ref) async {
   return openDatabase(
     'tt_local.db',
-    version: 2,
+    version: 3,
     onCreate: (db, version) async {
       await db.execute('''
 CREATE TABLE draft_routes (
@@ -29,10 +29,18 @@ CREATE TABLE route_points (
   timestamp INTEGER NOT NULL
 )
 ''');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_route_points_routeId ON route_points(routeId)',
+      );
     },
     onUpgrade: (db, oldVersion, newVersion) async {
       if (oldVersion < 2) {
         await db.execute('ALTER TABLE draft_routes ADD COLUMN groupId TEXT');
+      }
+      if (oldVersion < 3) {
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_route_points_routeId ON route_points(routeId)',
+        );
       }
     },
   );

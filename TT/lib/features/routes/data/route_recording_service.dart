@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:turf/turf.dart' as turf;
 import '../../../core/database_provider.dart';
 import '../../../core/api_client.dart';
 import 'models/draft_route.dart';
@@ -10,13 +11,41 @@ import '../../map/data/location_tracking_service.dart';
 final routeRecordingServiceProvider = Provider((ref) => RouteRecordingService(ref));
 
 class RouteRecordingService {
+  // A fix is only persisted once the recorder has moved far enough or waited
+  // long enough. Dropping redundant stationary fixes keeps route_points (and
+  // the sync payload) small without losing trail shape.
+  static const double _minPointDistanceMeters = 5.0;
+  static const Duration _minPointInterval = Duration(seconds: 10);
+
   final Ref _ref;
   StreamSubscription? _locationSub;
   int? _activeRouteId;
+  turf.Position? _lastStoredPosition;
+  DateTime? _lastStoredAt;
 
   RouteRecordingService(this._ref);
 
   bool get isRecording => _activeRouteId != null;
+
+  bool _shouldStore(double lat, double lng) {
+    final last = _lastStoredPosition;
+    final lastAt = _lastStoredAt;
+    if (last == null || lastAt == null) return true;
+
+    final movedMeters = turf.distance(
+      turf.Point(coordinates: last),
+      turf.Point(coordinates: turf.Position(lng, lat)),
+      turf.Unit.meters,
+    );
+    if (movedMeters >= _minPointDistanceMeters) return true;
+
+    return DateTime.now().difference(lastAt) >= _minPointInterval;
+  }
+
+  void _remember(double lat, double lng) {
+    _lastStoredPosition = turf.Position(lng, lat);
+    _lastStoredAt = DateTime.now();
+  }
 
   Future<List<RoutePoint>> getActiveRoutePoints() async {
     final db = await _ref.read(databaseProvider.future);
@@ -60,6 +89,8 @@ class RouteRecordingService {
       isCompleted: false,
     );
     _activeRouteId = await db.insert('draft_routes', draft.toMap());
+    _lastStoredPosition = null;
+    _lastStoredAt = null;
 
     // Immediately add the first point if provided
     if (initialLat != null && initialLng != null) {
@@ -73,20 +104,26 @@ class RouteRecordingService {
           timestamp: DateTime.now(),
         ).toMap(),
       );
+      _remember(initialLat, initialLng);
     }
 
     _locationSub = _ref.read(locationTrackingServiceProvider).locationStream.listen((data) async {
       if (_activeRouteId == null) return;
 
+      final lat = (data['latitude'] as num).toDouble();
+      final lng = (data['longitude'] as num).toDouble();
+      if (!_shouldStore(lat, lng)) return;
+
       final point = RoutePoint(
         routeId: _activeRouteId!,
-        latitude: (data['latitude'] as num).toDouble(),
-        longitude: (data['longitude'] as num).toDouble(),
+        latitude: lat,
+        longitude: lng,
         altitude: (data['altitude'] as num?)?.toDouble() ?? 0.0,
         timestamp: DateTime.now(),
       );
 
       await db.insert('route_points', point.toMap());
+      _remember(lat, lng);
     });
   }
 
@@ -100,6 +137,7 @@ class RouteRecordingService {
 
     final db = await _ref.read(databaseProvider.future);
     await _locationSub?.cancel();
+    _locationSub = null;
 
     final routeId = _activeRouteId!;
     await db.update(
@@ -116,6 +154,8 @@ class RouteRecordingService {
     );
 
     _activeRouteId = null;
+    _lastStoredPosition = null;
+    _lastStoredAt = null;
 
     // Trigger sync
     await syncRoute(routeId);

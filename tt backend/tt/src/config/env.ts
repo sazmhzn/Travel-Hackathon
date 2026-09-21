@@ -16,7 +16,7 @@ const envBoolean = (defaultValue: boolean) =>
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
-  HOST: z.string().default('192.168.110.11'),
+  HOST: z.string().default('192.168.111.244'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   
   // JWT

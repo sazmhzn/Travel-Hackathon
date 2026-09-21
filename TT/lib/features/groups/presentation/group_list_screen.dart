@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../data/group_service.dart';
 import '../../auth/data/auth_service.dart';
+import '../../test/data/test_expedition.dart';
 import 'group_widgets.dart';
 
 enum _GroupSort {
@@ -457,6 +459,14 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
       appBar: AppBar(
         title: const Text('Expeditions'),
         actions: [
+          if (kDebugMode)
+            IconButton(
+              icon: const Icon(Icons.science_outlined),
+              tooltip: 'Run TEST-Expedition',
+              onPressed: () => context.go(
+                '/map?expeditionId=${TestExpedition.id}',
+              ),
+            ),
           PopupMenuButton<_GroupSort>(
             icon: const Icon(Icons.sort),
             tooltip: 'Sort',

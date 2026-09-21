@@ -25,22 +25,25 @@ class OffPathCalculator {
     );
   }
 
-  static OffPathResult? checkOffPath(LatLng currentLoc, List<LatLng> route, double thresholdMeters) {
-    if (route.isEmpty) return null;
+  static OffPathResult? checkOffPath(LatLng currentLoc, List<LatLng> route, double graceMeters) {
+    if (route.length < 2) return null;
 
     final currentPoint = turf.Point(coordinates: turf.Position(currentLoc.longitude, currentLoc.latitude));
     final lineString = turf.LineString(coordinates: route.map((e) => turf.Position(e.longitude, e.latitude)).toList());
 
-    // Calculate distance from point to line string (returns kilometers by default)
-    final distanceToLineKm = turf.pointToLineDistance(currentPoint, lineString);
-    final distanceMeters = distanceToLineKm * 1000;
+    // Distance from the current position to the nearest point of the route.
+    final distanceMeters = turf.pointToLineDistance(
+      currentPoint,
+      lineString,
+      unit: turf.Unit.meters,
+    ).toDouble();
 
-    final bool isOff = distanceMeters > thresholdMeters;
+    final bool isOff = distanceMeters > graceMeters;
 
-    // Find the nearest point on the line to draw a return path
+    // Nearest point on the route, used to draw the shortest way back.
     final nearestFeature = turf.nearestPointOnLine(lineString, currentPoint);
     final nearestPos = nearestFeature.geometry?.coordinates;
-    
+
     LatLng nearestLatLng = currentLoc;
     if (nearestPos != null) {
       nearestLatLng = LatLng(nearestPos.lat.toDouble(), nearestPos.lng.toDouble());
@@ -48,7 +51,7 @@ class OffPathCalculator {
 
     return OffPathResult(
       isOffPath: isOff,
-      distanceMeters: distanceMeters as double,
+      distanceMeters: distanceMeters,
       nearestPointOnRoute: nearestLatLng,
     );
   }
