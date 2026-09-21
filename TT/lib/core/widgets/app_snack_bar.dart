@@ -14,13 +14,18 @@ class AppSnackBar {
   static void showSuccess(BuildContext context, String message) =>
       _show(context, message, tone: _Tone.success);
 
-  static void showError(BuildContext context, String message) =>
-      _show(context, message, tone: _Tone.error);
+  static void showError(
+    BuildContext context,
+    String message, {
+    Duration? duration,
+  }) =>
+      _show(context, message, tone: _Tone.error, duration: duration);
 
   static void _show(
     BuildContext context,
     String message, {
     _Tone tone = _Tone.neutral,
+    Duration? duration,
   }) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (messenger == null) return;
@@ -43,6 +48,7 @@ class AppSnackBar {
           backgroundColor: background,
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(16),
+          duration: duration ?? const Duration(seconds: 4),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),

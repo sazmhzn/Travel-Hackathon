@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -37,7 +38,7 @@ class RouteService {
         }
       }
     } catch (e) {
-      print('Error fetching group routes: $e');
+      debugPrint('Error fetching group routes: $e');
     }
     return null;
   }
@@ -58,7 +59,7 @@ class RouteService {
         return response.data[0]['geoJsonPayload'];
       }
     } catch (e) {
-      print('Error fetching real route: $e');
+      debugPrint('Error fetching real route: $e');
     }
     return null;
   }
@@ -88,24 +89,6 @@ class RouteService {
     }
   }
 
-  Map<String, dynamic> _getMockGeoJson() {
-    final route = getMockRoute();
-    final coordinates = route.map((latLng) => [latLng.longitude, latLng.latitude]).toList();
-    return {
-      "type": "FeatureCollection",
-      "features": [
-        {
-          "type": "Feature",
-          "properties": {},
-          "geometry": {
-            "type": "LineString",
-            "coordinates": coordinates,
-          }
-        }
-      ]
-    };
-  }
-
   // Mock route data for Kathmandu (Thamel to Durbar Square)
   List<LatLng> getMockRoute() {
     return const [
@@ -114,25 +97,5 @@ class RouteService {
       LatLng(27.7080, 85.3100),
       LatLng(27.7042, 85.3065), // Durbar Square
     ];
-  }
-
-  // Generate GeoJSON Feature Collection from the route as a Map
-  Map<String, dynamic> _generateGeoJsonRoute() {
-    final route = getMockRoute();
-    final coordinates = route.map((latLng) => [latLng.longitude, latLng.latitude]).toList();
-
-    return {
-      "type": "FeatureCollection",
-      "features": [
-        {
-          "type": "Feature",
-          "properties": {},
-          "geometry": {
-            "type": "LineString",
-            "coordinates": coordinates,
-          }
-        }
-      ]
-    };
   }
 }

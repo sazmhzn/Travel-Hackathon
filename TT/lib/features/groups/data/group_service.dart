@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api_client.dart';
 
@@ -25,7 +26,7 @@ class GroupService {
       }
       return [];
     } catch (e) {
-      print('Get groups error: $e');
+      debugPrint('Get groups error: $e');
       return [];
     }
   }
@@ -42,7 +43,7 @@ class GroupService {
       }
       return [];
     } catch (e) {
-      print('Browse groups error: $e');
+      debugPrint('Browse groups error: $e');
       return [];
     }
   }
@@ -74,7 +75,7 @@ class GroupService {
     } on DioException catch (e) {
       return _messageFromDio(e) ?? 'Invalid invite code.';
     } catch (e) {
-      print('Join group error: $e');
+      debugPrint('Join group error: $e');
       return 'Could not join this expedition.';
     }
   }
@@ -90,7 +91,7 @@ class GroupService {
       }
       return [];
     } catch (e) {
-      print('Get group routes error: $e');
+      debugPrint('Get group routes error: $e');
       return [];
     }
   }
@@ -107,7 +108,7 @@ class GroupService {
     } on DioException catch (e) {
       return _messageFromDio(e) ?? 'Could not delete this route.';
     } catch (e) {
-      print('Delete route error: $e');
+      debugPrint('Delete route error: $e');
       return 'Could not delete this route.';
     }
   }
@@ -120,7 +121,7 @@ class GroupService {
       }
       return null;
     } catch (e) {
-      print('Get group details error: $e');
+      debugPrint('Get group details error: $e');
       return null;
     }
   }
@@ -144,10 +145,10 @@ class GroupService {
               (e.response!.data as Map)['error'] == 'OngoingExpeditionExists')) {
         return GroupStatusUpdate.ongoingExists;
       }
-      print('Set group status error: $e');
+      debugPrint('Set group status error: $e');
       return GroupStatusUpdate.failed;
     } catch (e) {
-      print('Set group status error: $e');
+      debugPrint('Set group status error: $e');
       return GroupStatusUpdate.failed;
     }
   }
@@ -166,7 +167,7 @@ class GroupService {
       );
       return response.statusCode == 200;
     } catch (e) {
-      print('Set hotspot error: $e');
+      debugPrint('Set hotspot error: $e');
       return false;
     }
   }
@@ -187,7 +188,7 @@ class GroupService {
       }
       return null;
     } catch (e) {
-      print('Update group error: $e');
+      debugPrint('Update group error: $e');
       return null;
     }
   }
@@ -206,7 +207,7 @@ class GroupService {
     } on DioException catch (e) {
       return _messageFromDio(e) ?? 'Could not remove this member.';
     } catch (e) {
-      print('Remove member error: $e');
+      debugPrint('Remove member error: $e');
       return 'Could not remove this member.';
     }
   }
@@ -223,7 +224,7 @@ class GroupService {
     } on DioException catch (e) {
       return _messageFromDio(e) ?? 'Could not delete this expedition.';
     } catch (e) {
-      print('Delete group error: $e');
+      debugPrint('Delete group error: $e');
       return 'Could not delete this expedition.';
     }
   }

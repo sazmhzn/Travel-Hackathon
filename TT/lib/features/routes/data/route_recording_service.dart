@@ -1,4 +1,6 @@
 import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turf/turf.dart' as turf;
@@ -221,7 +223,7 @@ class RouteRecordingService {
         );
       }
     } catch (e) {
-      print("Failed to sync route: $e");
+      debugPrint("Failed to sync route: $e");
     }
   }
 }

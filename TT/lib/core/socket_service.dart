@@ -1,14 +1,16 @@
 import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import 'api_client.dart';
 
 final socketServiceProvider = Provider((ref) => SocketService());
 
 class SocketService {
-  IO.Socket? _socket;
+  io.Socket? _socket;
   String? _pendingGroupId;
   
   // Streams for incoming events
@@ -39,7 +41,7 @@ class SocketService {
     // a single --dart-define=API_BASE_URL points both REST and the socket.
     final wsUrl = apiBaseUrl.replaceFirst(RegExp(r'/api/?$'), '');
 
-    _socket = IO.io(wsUrl, IO.OptionBuilder()
+    _socket = io.io(wsUrl, io.OptionBuilder()
         .setTransports(['websocket'])
         .disableAutoConnect()
         .setAuth({'token': token}) // Socket.IO handshake auth (backend reads handshake.auth.token)
@@ -49,7 +51,7 @@ class SocketService {
     );
 
     _socket!.onConnect((_) {
-      print('Socket.IO Connected');
+      debugPrint('Socket.IO Connected');
       // Re-join the active expedition room on (re)connect so live member
       // locations keep flowing.
       if (_pendingGroupId != null) {
@@ -58,11 +60,11 @@ class SocketService {
     });
 
     _socket!.onDisconnect((_) {
-      print('Socket.IO Disconnected');
+      debugPrint('Socket.IO Disconnected');
     });
 
     _socket!.onError((err) {
-      print('Socket.IO Error: $err');
+      debugPrint('Socket.IO Error: $err');
     });
 
     // Listeners based on Postman collection

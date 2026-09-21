@@ -7,6 +7,7 @@ export 'package:skeletonizer/skeletonizer.dart' show Bone;
 
 export 'app_banner.dart';
 export 'app_button.dart';
+export 'app_role_pill.dart';
 export 'app_section_header.dart';
 export 'app_shimmer_zone.dart';
 export 'app_snack_bar.dart';

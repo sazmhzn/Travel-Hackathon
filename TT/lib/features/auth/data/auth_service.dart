@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/api_client.dart';
@@ -42,9 +43,9 @@ class AuthService {
       return null;
     } catch (e) {
       if (e is DioException) {
-        print('Login error details: ${e.response?.data}');
+        debugPrint('Login error details: ${e.response?.data}');
       }
-      print('Login error: $e');
+      debugPrint('Login error: $e');
       return null;
     }
   }
@@ -81,9 +82,9 @@ class AuthService {
       return false;
     } catch (e) {
       if (e is DioException) {
-        print('Registration error details: ${e.response?.data}');
+        debugPrint('Registration error details: ${e.response?.data}');
       }
-      print('Registration error: $e');
+      debugPrint('Registration error: $e');
       rethrow;
     }
   }
@@ -102,7 +103,7 @@ class AuthService {
       }
       return null;
     } catch (e) {
-      print('Get profile error: $e');
+      debugPrint('Get profile error: $e');
       return null;
     }
   }

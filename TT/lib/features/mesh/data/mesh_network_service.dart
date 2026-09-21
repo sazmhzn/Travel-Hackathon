@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'offline_telemetry_record.dart';
@@ -43,7 +45,7 @@ class MeshNetworkService {
       });
       _startListeningForPayloads();
     } on PlatformException catch (e) {
-      print("Failed to start mesh advertising: '${e.message}'.");
+      debugPrint("Failed to start mesh advertising: '${e.message}'.");
     }
   }
 
@@ -57,7 +59,7 @@ class MeshNetworkService {
       });
       _startListeningForPayloads();
     } on PlatformException catch (e) {
-      print("Failed to start mesh discovery: '${e.message}'.");
+      debugPrint("Failed to start mesh discovery: '${e.message}'.");
     }
   }
 
@@ -66,7 +68,7 @@ class MeshNetworkService {
       await _methodChannel.invokeMethod('stopMesh');
       _stopListeningForPayloads();
     } on PlatformException catch (e) {
-      print("Failed to stop mesh: '${e.message}'.");
+      debugPrint("Failed to stop mesh: '${e.message}'.");
     }
   }
 
@@ -77,7 +79,7 @@ class MeshNetworkService {
         'payload': jsonPayload,
       });
     } on PlatformException catch (e) {
-      print("Failed to broadcast payload: '${e.message}'.");
+      debugPrint("Failed to broadcast payload: '${e.message}'.");
     }
   }
 
@@ -90,7 +92,7 @@ class MeshNetworkService {
         _handleIncomingPayload(jsonPayload);
       },
       onError: (dynamic error) {
-        print('Mesh Payload error: ${error.message}');
+        debugPrint('Mesh Payload error: ${error.message}');
       },
     );
   }
@@ -130,9 +132,9 @@ class MeshNetworkService {
 
       // Save to local Isar Database using SyncManager
       await _ref.read(syncManagerProvider).saveTelemetryRecord(record);
-      print("Saved offline telemetry from user ${record.userId}");
+      debugPrint("Saved offline telemetry from user ${record.userId}");
     } catch (e) {
-      print("Failed to parse mesh payload: $e");
+      debugPrint("Failed to parse mesh payload: $e");
     }
   }
 }

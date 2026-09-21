@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../core/app_theme.dart';
+import '../../../core/extensions/context_extensions.dart';
 import '../../../core/socket_service.dart';
+import '../../../core/theme/app_semantic_colors.dart';
+import '../../../core/theme/app_sizes.dart';
+import '../../../core/widgets/widgets.dart';
 import '../data/group_service.dart';
 import '../../auth/data/auth_service.dart';
 import 'group_widgets.dart';
@@ -294,7 +297,9 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppTheme.danger),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Remove'),
           ),
@@ -323,7 +328,11 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.delete_forever, size: 36, color: AppTheme.danger),
+        icon: Icon(
+          Icons.delete_forever,
+          size: 36,
+          color: Theme.of(dialogContext).colorScheme.error,
+        ),
         title: const Text('Delete expedition?'),
         content: Text(
           'This permanently deletes "$name" and removes every member. '
@@ -336,7 +345,9 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppTheme.danger),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Delete'),
           ),
@@ -379,7 +390,11 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.delete_outline, size: 36, color: AppTheme.danger),
+        icon: Icon(
+          Icons.delete_outline,
+          size: 36,
+          color: Theme.of(dialogContext).colorScheme.error,
+        ),
         title: const Text('Delete route?'),
         content: Text(
           'This permanently deletes "$title". This cannot be undone.',
@@ -391,7 +406,9 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppTheme.danger),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Delete'),
           ),
@@ -420,9 +437,13 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
         title: Text(_details?['group']?['name']?.toString() ?? 'Expedition'),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppLoading()
           : _details == null
-              ? _ErrorState(onRetry: _load)
+              ? AppErrorState(
+                  title: 'Could not load this expedition',
+                  message: 'Check your connection and try again.',
+                  onRetry: _load,
+                )
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView(
@@ -532,6 +553,8 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
   }
 
   Widget _statsRow() {
+    final colors = context.semanticColors;
+    final missingCount = (_details!['missingCount'] as num?)?.toInt() ?? 0;
     return Row(
       children: [
         StatTile(
@@ -539,35 +562,36 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
           value: '${_details!['memberCount'] ?? 0}',
           icon: Icons.groups,
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: AppSpacing.sm),
         StatTile(
           label: 'Online',
           value: '${_details!['onlineCount'] ?? 0}',
           icon: Icons.sensors,
-          color: AppTheme.success,
+          color: colors.success,
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: AppSpacing.sm),
         StatTile(
           label: 'Missing',
-          value: '${_details!['missingCount'] ?? 0}',
+          value: '$missingCount',
           icon: Icons.warning_amber_rounded,
-          color: AppTheme.danger,
+          color: missingCount > 0 ? colors.danger : colors.tertiaryText,
         ),
       ],
     );
   }
 
   Widget _guideControls() {
+    final colors = context.semanticColors;
     final group = _details!['group'] as Map<String, dynamic>;
     final status = (group['status'] ?? 'PENDING').toString().toUpperCase();
     final pending = status == 'PENDING';
     final ongoing = status == 'ONGOING';
 
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
       child: Card(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -575,9 +599,9 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                 children: [
                   Icon(
                     ongoing ? Icons.play_circle : Icons.flag_circle_outlined,
-                    color: AppTheme.success,
+                    color: colors.success,
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: Text(
                       pending
@@ -590,7 +614,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               if (pending)
                 FilledButton.icon(
                   onPressed: _isBusy ? null : () => _changeStatus('ONGOING'),
@@ -609,21 +633,29 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                   icon: const Icon(Icons.restart_alt),
                   label: const Text('Reactivate expedition'),
                 ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: _isBusy ? null : _editExpedition,
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('Edit expedition'),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: _isBusy ? null : _confirmDelete,
-                icon: const Icon(Icons.delete_outline),
-                label: const Text('Delete expedition'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.danger,
-                  side: const BorderSide(color: AppTheme.danger),
-                ),
+              const SizedBox(height: AppSpacing.sm),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isBusy ? null : _editExpedition,
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('Edit'),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isBusy ? null : _confirmDelete,
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      label: const Text('Delete'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: colors.danger,
+                        side: BorderSide(color: colors.danger),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -637,7 +669,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     final scheme = Theme.of(context).colorScheme;
 
     return [
-      SectionHeader(title: 'Routes', count: _routes.length),
+      AppSectionHeader(title: 'Routes', count: _routes.length),
       if (_routes.isEmpty)
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -672,7 +704,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
                           : () => _confirmDeleteRoute(route),
                       tooltip: 'Delete route',
                       icon: const Icon(Icons.delete_outline, size: 20),
-                      color: AppTheme.danger,
+                      color: context.semanticColors.danger,
                     )
                   : null,
             ),
@@ -687,7 +719,19 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     if (missing.isEmpty) return [];
 
     return [
-      SectionHeader(title: 'Missing / no signal', count: missing.length),
+      AppSectionHeader(
+        title: 'Missing / no signal',
+        count: missing.length,
+        trailing: TextButton.icon(
+          onPressed: () => context.go('/radar'),
+          icon: const Icon(Icons.radar, size: 18),
+          label: const Text('View on radar'),
+          style: TextButton.styleFrom(
+            foregroundColor: context.semanticColors.danger,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+          ),
+        ),
+      ),
       for (final member in missing)
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
@@ -700,7 +744,7 @@ class _GroupDetailsScreenState extends ConsumerState<GroupDetailsScreen> {
     final members = (_details!['members'] as List).cast<Map<String, dynamic>>();
     final present = members.where((m) => m['isMissing'] != true).toList();
     return [
-      SectionHeader(title: 'Members', count: members.length),
+      AppSectionHeader(title: 'Members', count: members.length),
       if (present.isEmpty)
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -752,6 +796,7 @@ class _MemberTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final colors = context.semanticColors;
     final missing = member['isMissing'] == true;
     final isGuide = member['role'] == 'GUIDE';
     final you = isCurrentUser(member);
@@ -765,9 +810,9 @@ class _MemberTile extends StatelessWidget {
           children: [
             CircleAvatar(
               backgroundColor:
-                  (missing ? AppTheme.danger : scheme.primaryContainer)
+                  (missing ? colors.danger : scheme.primaryContainer)
                       .withValues(alpha: 0.18),
-              foregroundColor: missing ? AppTheme.danger : scheme.primary,
+              foregroundColor: missing ? colors.danger : scheme.primary,
               child: Text(
                 _initials(member['name']?.toString() ?? '?'),
                 style: const TextStyle(fontWeight: FontWeight.w700),
@@ -803,13 +848,13 @@ class _MemberTile extends StatelessWidget {
                   const SizedBox(height: 2),
                   Row(
                     children: [
-                      _RoleChip(isGuide: isGuide),
+                      AppRolePill(isGuide: isGuide, compact: true),
                       const SizedBox(width: 8),
                       if (missing)
-                        const Text(
+                        Text(
                           'No signal',
                           style: TextStyle(
-                            color: AppTheme.danger,
+                            color: colors.danger,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -843,7 +888,7 @@ class _MemberTile extends StatelessWidget {
                 children: [
                   Icon(
                     _batteryIcon(battery.toInt()),
-                    color: _batteryColor(battery.toInt(), scheme),
+                    color: _batteryColor(battery.toInt(), colors),
                     size: 20,
                   ),
                   Text(
@@ -860,59 +905,8 @@ class _MemberTile extends StatelessWidget {
                 onPressed: onRemove,
                 tooltip: 'Remove member',
                 icon: const Icon(Icons.person_remove_outlined, size: 20),
-                color: AppTheme.danger,
+                color: colors.danger,
               ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RoleChip extends StatelessWidget {
-  const _RoleChip({required this.isGuide});
-
-  final bool isGuide;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isGuide ? AppTheme.accent : Theme.of(context).colorScheme.primary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        isGuide ? 'Guide' : 'Member',
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.onRetry});
-
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, size: 56, color: AppTheme.danger),
-            const SizedBox(height: 12),
-            const Text('Could not load this expedition.'),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
           ],
         ),
       ),
@@ -957,8 +951,8 @@ IconData _batteryIcon(int level) {
   return Icons.battery_alert;
 }
 
-Color _batteryColor(int level, ColorScheme scheme) {
-  if (level >= 50) return AppTheme.success;
-  if (level >= 20) return AppTheme.accent;
-  return AppTheme.danger;
+Color _batteryColor(int level, AppSemanticColors colors) {
+  if (level >= 50) return colors.success;
+  if (level >= 20) return colors.accent;
+  return colors.danger;
 }

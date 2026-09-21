@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:workmanager/workmanager.dart';
 import '../features/mesh/data/sync_manager.dart';
@@ -9,7 +10,7 @@ import '../features/routes/data/route_recording_service.dart';
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     DartPluginRegistrant.ensureInitialized();
-    print("Native background task started: $task");
+    debugPrint("Native background task started: $task");
     
     final container = ProviderContainer();
     try {
@@ -19,7 +20,7 @@ void callbackDispatcher() {
       await container.read(routeRecordingServiceProvider).syncPendingRoutes();
       return true;
     } catch (e) {
-      print("Background sync failed: $e");
+      debugPrint("Background sync failed: $e");
       return false;
     } finally {
       container.dispose();
@@ -29,10 +30,7 @@ void callbackDispatcher() {
 
 class BackgroundSyncService {
   static void initialize() {
-    Workmanager().initialize(
-      callbackDispatcher,
-      isInDebugMode: true,
-    );
+    Workmanager().initialize(callbackDispatcher);
   }
 
   static void schedulePeriodicSync() {

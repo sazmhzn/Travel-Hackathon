@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/extensions/context_extensions.dart';
+import '../../../core/theme/app_sizes.dart';
+import '../../../core/widgets/widgets.dart';
 import '../data/group_service.dart';
 import '../../auth/data/auth_service.dart';
 import '../../test/data/test_expedition.dart';
@@ -19,6 +22,13 @@ enum _GroupSort {
 
 String _statusOf(Map<String, dynamic> group) =>
     (group['status'] ?? 'PENDING').toString().toUpperCase();
+
+/// Missing-member count, tolerating either API field name. Absent means 0.
+int _missingCount(Map<String, dynamic> group) {
+  final raw = group['missingCount'] ?? group['missing_count'];
+  if (raw is num) return raw.toInt();
+  return int.tryParse(raw?.toString() ?? '') ?? 0;
+}
 
 class GroupListScreen extends ConsumerStatefulWidget {
   const GroupListScreen({super.key});
@@ -489,7 +499,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppLoading()
           : Column(
               children: [
                 _searchBar(),
@@ -519,7 +529,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
     final visible = _visibleGroups;
     return [
       if (ongoing.isNotEmpty) ...[
-        SectionHeader(title: 'Ongoing', count: ongoing.length),
+        AppSectionHeader(title: 'Ongoing', count: ongoing.length),
         for (final group in ongoing)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
@@ -533,7 +543,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
             ),
           ),
       ],
-      SectionHeader(
+      AppSectionHeader(
         title: _isGuide ? 'My expeditions' : 'All expeditions',
         count: visible.length,
       ),
@@ -589,6 +599,7 @@ class _GroupCard extends StatelessWidget {
     final code = group['invite_code']?.toString() ?? '';
     final description = group['description']?.toString() ?? '';
     final guideName = group['guide_name']?.toString() ?? '';
+    final missingCount = _missingCount(group);
 
     return Card(
       child: InkWell(
@@ -657,7 +668,16 @@ class _GroupCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  StatusPill(status: status),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      StatusPill(status: status),
+                      if (missingCount > 0) ...[
+                        const SizedBox(height: 6),
+                        _MissingBadge(count: missingCount),
+                      ],
+                    ],
+                  ),
                 ],
               ),
               if (isMember && code.isNotEmpty) ...[
@@ -815,6 +835,43 @@ class _EmptyState extends StatelessWidget {
           style: TextStyle(color: scheme.onSurfaceVariant),
         ),
       ],
+    );
+  }
+}
+
+/// Emergency badge shown on an ongoing card when members are missing.
+class _MissingBadge extends StatelessWidget {
+  const _MissingBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.semanticColors;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: 3,
+      ),
+      decoration: BoxDecoration(
+        color: colors.danger,
+        borderRadius: BorderRadius.circular(AppRadius.full),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.warning_rounded, size: 12, color: colors.onDanger),
+          const SizedBox(width: 4),
+          Text(
+            '$count missing',
+            style: TextStyle(
+              color: colors.onDanger,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

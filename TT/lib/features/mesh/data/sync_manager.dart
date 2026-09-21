@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite/sqflite.dart';
 import '../../../core/api_client.dart';
@@ -77,7 +78,7 @@ CREATE TABLE $_table (
         );
       }
     } catch (e) {
-      print("Failed to sync telemetry: $e");
+      debugPrint("Failed to sync telemetry: $e");
     }
   }
 }

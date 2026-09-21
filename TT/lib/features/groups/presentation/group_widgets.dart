@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../core/app_theme.dart';
+
+import '../../../core/extensions/context_extensions.dart';
+import '../../../core/theme/app_sizes.dart';
+import '../../../core/widgets/widgets.dart';
 
 /// Small pill used to indicate an expedition's lifecycle status.
 class StatusPill extends StatelessWidget {
@@ -11,35 +14,35 @@ class StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final colors = context.semanticColors;
     final Color color;
     final IconData icon;
     final String label;
     switch (status) {
       case 'ONGOING':
-        color = AppTheme.success;
+        color = colors.success;
         icon = Icons.circle;
         label = 'Ongoing';
         break;
       case 'COMPLETED':
-        color = scheme.primary;
+        color = colors.brand;
         icon = Icons.check_circle;
         label = 'Completed';
         break;
       default:
-        color = scheme.outline;
+        color = colors.tertiaryText;
         icon = Icons.circle_outlined;
         label = 'Pending';
     }
 
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 8 : 10,
+        horizontal: compact ? AppSpacing.sm : 10,
         vertical: compact ? 3 : 5,
       ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(AppRadius.full),
         border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Row(
@@ -78,14 +81,17 @@ class StatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final effective = color ?? scheme.primary;
+    final colors = context.semanticColors;
+    final effective = color ?? colors.brand;
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        padding: const EdgeInsets.symmetric(
+          vertical: AppSpacing.lg,
+          horizontal: AppSpacing.md,
+        ),
         decoration: BoxDecoration(
           color: effective.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           border: Border.all(color: effective.withValues(alpha: 0.18)),
         ),
         child: Column(
@@ -106,57 +112,10 @@ class StatTile extends StatelessWidget {
             Text(
               label,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+              style: TextStyle(fontSize: 12, color: colors.secondaryText),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Section heading with a trailing count.
-class SectionHeader extends StatelessWidget {
-  const SectionHeader({super.key, required this.title, this.count});
-
-  final String title;
-  final int? count;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 20, 4, 10),
-      child: Row(
-        children: [
-          Text(
-            title.toUpperCase(),
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.6,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          if (count != null) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                '$count',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ],
-        ],
       ),
     );
   }
@@ -170,22 +129,14 @@ Future<void> copyWithFeedback(
 }) async {
   await Clipboard.setData(ClipboardData(text: value));
   if (context.mounted) {
-    showAppSnack(context, '$label copied to clipboard');
+    AppSnackBar.show(context, '$label copied to clipboard');
   }
 }
 
 void showAppSnack(BuildContext context, String message, {bool error = false}) {
-  final scheme = Theme.of(context).colorScheme;
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: error ? AppTheme.danger : scheme.inverseSurface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-    );
+  if (error) {
+    AppSnackBar.showError(context, message);
+  } else {
+    AppSnackBar.show(context, message);
+  }
 }

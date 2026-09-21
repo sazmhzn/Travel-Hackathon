@@ -129,21 +129,6 @@ class AppColors {
   static const Color alphaWhite90 = Color(0xE6FFFFFF);
   static const Color alphaWhite95 = Color(0xF2FFFFFF);
 
-  // ─── Functional map / marker colors ───────────────────────
-  // These are data-encoding colors on the map, not theme chrome. Kept here so
-  // no feature file hardcodes a hex again.
-  static const Color mapMissing = Color(0xFFE53935);
-  static const Color mapOffRoute = Color(0xFFFF3D00);
-  static const Color mapGuide = Color(0xFF1D4ED8);
-  static const Color mapMember = Color(0xFFEC4899);
-  static const Color mapSharedLocation = Color(0xFFC026D3);
-  static const Color mapSos = red50;
-  static const Color mapRecording = Color(0xFF0000FF);
-  static const Color mapSelfOnPath = Color(0xFF0000FF);
-  static const Color mapSelfOffPath = Color(0xFFDC2626);
-  static const Color mapStart = Color(0xFFFACC15);
-  static const Color mapStroke = neutral0;
-
   // ─── Shimmer ──────────────────────────────────────────────
   static const Color shimmerBase = neutral10;
   static const Color shimmerHighlight = neutral0;

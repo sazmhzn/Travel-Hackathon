@@ -15,8 +15,11 @@ import '../../test/data/test_expedition.dart';
 import '../../test/data/simulation_service.dart';
 import '../../emergency/data/emergency_service.dart';
 import '../../social/data/deep_link_service.dart';
-import '../../../core/app_theme.dart';
+import '../../../core/extensions/context_extensions.dart';
 import '../../../core/socket_service.dart';
+import '../../../core/theme/map_marker_colors.dart';
+import '../../../core/theme/app_sizes.dart';
+import '../../../core/widgets/widgets.dart';
 import '../../auth/data/auth_service.dart';
 import '../../routes/data/route_recording_service.dart';
 import '../../groups/data/group_service.dart';
@@ -136,45 +139,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       final groupId = (data['groupId'] ?? _groupId)?.toString();
       final lat = (data['lat'] as num?)?.toDouble();
       final lng = (data['lng'] as num?)?.toDouble();
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('🚨 SOS Alert!', style: TextStyle(color: Colors.red)),
-            content: Text('$userName has triggered Rescue Mode.\n\nReason: $reason'),
-            actions: [
-              if (lat != null && lng != null)
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _focusOnSos(lat, lng);
-                  },
-                  icon: const Icon(Icons.map_outlined, size: 18),
-                  label: const Text('Go to last known location'),
-                ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Understood'),
-              ),
-              if (groupId != null && groupId.isNotEmpty)
-                FilledButton(
-                  onPressed: () async {
-                    Navigator.pop(context);
-                    final done = await ref
-                        .read(emergencyServiceProvider)
-                        .resolveEmergency(groupId);
-                    if (mounted) {
-                      _showSnack(done
-                          ? 'Rescue mode marked resolved.'
-                          : 'Could not resolve rescue mode.');
-                    }
-                  },
-                  child: const Text('Mark resolved'),
-                ),
-            ],
-          )
-        );
-      }
+      _showEmergencyDialog(
+        title: 'SOS alert',
+        message: '$userName has triggered Rescue Mode.\n\nReason: $reason',
+        lat: lat,
+        lng: lng,
+        groupId: groupId,
+        allowResolve: true,
+      );
     });
 
     // Someone resolved the distress call: clear it for everyone.
@@ -193,27 +165,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       final where = distanceKm == null
           ? 'nearby'
           : 'about ${distanceKm.toStringAsFixed(1)} km away';
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('🚨 SOS Nearby', style: TextStyle(color: Colors.red)),
-          content: Text('$userName triggered Rescue Mode $where.\n\nReason: $reason'),
-          actions: [
-            if (lat != null && lng != null)
-              TextButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _focusOnSos(lat, lng);
-                },
-                icon: const Icon(Icons.map_outlined, size: 18),
-                label: const Text('Go to last known location'),
-              ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Understood'),
-            )
-          ],
-        ),
+      _showEmergencyDialog(
+        title: 'SOS nearby',
+        message: '$userName triggered Rescue Mode $where.\n\nReason: $reason',
+        lat: lat,
+        lng: lng,
       );
     });
 
@@ -333,7 +289,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         'features': features,
       });
     } catch (e) {
-      print('Failed to render peer return paths: $e');
+      debugPrint('Failed to render peer return paths: $e');
     }
   }
 
@@ -370,26 +326,84 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   void _showSnack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    AppSnackBar.show(context, message);
   }
 
   /// Member-facing error toast shown when they leave the expedition route
   /// corridor. The red line drawn back to the route is the shortest path to it.
   void _showOffPathToast(double distanceMeters) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            'You are ${distanceMeters.toStringAsFixed(0)} m off the route. '
-            'Get back on the path shown on the map.',
+    AppSnackBar.showError(
+      context,
+      'You are ${distanceMeters.toStringAsFixed(0)} m off the route. '
+      'Get back on the path shown on the map.',
+      duration: const Duration(seconds: 6),
+    );
+  }
+
+  /// Emergency dialog for an incoming SOS. Deliberately loud, no emoji, one
+  /// primary action, with a resolve action for guides.
+  void _showEmergencyDialog({
+    required String title,
+    required String message,
+    double? lat,
+    double? lng,
+    String? groupId,
+    bool allowResolve = false,
+  }) {
+    if (!mounted) return;
+    final colors = context.semanticColors;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(Icons.sos, size: 36, color: colors.danger),
+        title: Text(
+          title,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: colors.danger,
+            fontWeight: FontWeight.w800,
           ),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AppTheme.danger,
-          duration: const Duration(seconds: 6),
         ),
-      );
+        content: Text(message, textAlign: TextAlign.center),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          if (lat != null && lng != null)
+            TextButton.icon(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _focusOnSos(lat, lng);
+              },
+              icon: const Icon(Icons.my_location, size: 18),
+              label: const Text('Go to location'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Dismiss'),
+          ),
+          if (allowResolve && groupId != null && groupId.isNotEmpty)
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.danger,
+                foregroundColor: colors.onDanger,
+              ),
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                final done = await ref
+                    .read(emergencyServiceProvider)
+                    .resolveEmergency(groupId);
+                if (!mounted) return;
+                if (done) {
+                  AppSnackBar.showSuccess(context, 'Rescue mode marked resolved.');
+                } else {
+                  AppSnackBar.showError(context, 'Could not resolve rescue mode.');
+                }
+              },
+              child: const Text('Mark resolved'),
+            ),
+        ],
+      ),
+    );
   }
 
   /// Watches peer heartbeats and flags anyone quiet for longer than the
@@ -445,10 +459,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final isGuide = info?['role'] == 'GUIDE';
     final isOffPath = _peerOffPath[userId]?.isOffPath ?? false;
     final color = _missingPeers.contains(userId)
-        ? '#E53935'
+        ? MapMarkerColors.missing
         : isOffPath
-            ? '#FF3D00'
-            : (isGuide ? '#1D4ED8' : '#EC4899');
+        ? MapMarkerColors.offRoute
+        : (isGuide ? MapMarkerColors.guide : MapMarkerColors.member);
 
     try {
       final existing = _peerMarkers[userId];
@@ -459,7 +473,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             circleRadius: 8.0,
             circleColor: color,
             circleStrokeWidth: 2.0,
-            circleStrokeColor: '#FFFFFF',
+            circleStrokeColor: MapMarkerColors.stroke,
           ),
         );
       } else {
@@ -469,7 +483,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         );
       }
     } catch (e) {
-      print('Failed to render peer marker for $userId: $e');
+      debugPrint('Failed to render peer marker for $userId: $e');
     }
   }
 
@@ -522,7 +536,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           'missing_threshold_$groupId', _missingThresholdSeconds);
       await prefs.setString('roster_$groupId', jsonEncode(members));
     } catch (e) {
-      print('Failed to load expedition roster: $e');
+      debugPrint('Failed to load expedition roster: $e');
       final cached = prefs.getString('roster_$groupId');
       if (cached != null) {
         members = (jsonDecode(cached) as List).cast<Map<String, dynamic>>();
@@ -750,11 +764,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     try {
       await mapController!.setGeoJsonSource("route-source", geoJson);
       // Ensure it's orange as requested for socket updates
-      await mapController!.setLayerProperties("route-layer", LineLayerProperties(lineColor: "#FF8C00"));
+      await mapController!.setLayerProperties("route-layer", LineLayerProperties(        lineColor: MapMarkerColors.routeUpdated));
       _activeRoutePoints = RouteService.extractPoints(geoJson);
       ref.read(locationTrackingServiceProvider).setActiveRoute(_activeRoutePoints);
     } catch (e) {
-      print("Failed to render updated route: $e");
+      debugPrint("Failed to render updated route: $e");
     }
   }
 
@@ -784,7 +798,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         geometry: loc,
         iconImage: 'marker-15',
         iconSize: 2.0,
-        iconColor: '#FF00FF',      )
+        iconColor: MapMarkerColors.sharedLocation,
+      ),
     );
     mapController!.animateCamera(CameraUpdate.newLatLngZoom(loc, 14.0));
   }
@@ -801,17 +816,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           geometry: loc,
           iconImage: 'marker-15',
           iconSize: 2.2,
-          iconColor: '#FF0000',
+          iconColor: MapMarkerColors.sos,
         ),
       );
       _showSnack('Centered on last known location.');
     } catch (e) {
-      print('Failed to focus last known location: $e');
+      debugPrint('Failed to focus last known location: $e');
     }
   }
 
   void _setupLocationListener() {
-    print("Setting up UI location listener...");
+    debugPrint("Setting up UI location listener...");
     _locationSub = ref.read(locationTrackingServiceProvider).locationStream.listen((locationData) {
       final lat = locationData['latitude'] as double;
       final lng = locationData['longitude'] as double;
@@ -827,11 +842,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         prefs.setDouble('last_lng', lng);
       });
 
-      print("UI received location update: $lat, $lng");
+      debugPrint("UI received location update: $lat, $lng");
 
       // Auto-center camera on first GPS fix
       if (!_hasCenteredOnUser && mapController != null) {
-        print("Centering camera on user: $currentLoc");
+        debugPrint("Centering camera on user: $currentLoc");
         mapController!.animateCamera(CameraUpdate.newLatLngZoom(currentLoc, 15.0));
         _hasCenteredOnUser = true;
       }
@@ -885,9 +900,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Future<void> _updateUserMarker(LatLng loc, bool isOffPath) async {
     if (mapController == null) return;
     
-    String circleColor = isOffPath ? '#FF0000' : '#0000FF'; // Red if off path, Blue if on path
+    String circleColor = isOffPath
+        ? MapMarkerColors.selfOffPath
+        : MapMarkerColors.selfOnPath; // Red if off path, blue if on path
     if (_isRecording) {
-      circleColor = '#00FF00'; // Green while recording
+      circleColor = MapMarkerColors.recordingSelf; // Green while recording
     }
 
     if (_userLocationCircle == null) {
@@ -897,7 +914,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           circleRadius: 8.0,
           circleColor: circleColor,
           circleStrokeWidth: 2.0,
-          circleStrokeColor: '#FFFFFF',
+          circleStrokeColor: MapMarkerColors.stroke,
         )
       );
     } else {
@@ -931,7 +948,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         await mapController!.setGeoJsonSource("return-path-source", geoJson);
       }
     } catch (e) {
-      print("Error drawing return path: $e");
+      debugPrint("Error drawing return path: $e");
     }
   }
 
@@ -1009,7 +1026,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         "route-source",
         "route-layer",
         LineLayerProperties(
-          lineColor: "#FF0000",
+          lineColor: MapMarkerColors.sos,
           lineWidth: 4.0,
           lineJoin: "round",
           lineCap: "round",
@@ -1021,7 +1038,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         "recording-source",
         "recording-layer",
         LineLayerProperties(
-          lineColor: "#0000FF", // Blue for the path being recorded
+          lineColor: MapMarkerColors.recording, // Blue for the path being recorded
           lineWidth: 4.0,
           lineJoin: "round",
           lineCap: "round",
@@ -1034,7 +1051,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         "return-path-source",
         "return-path-layer",
         LineLayerProperties(
-          lineColor: "#FF0000",
+          lineColor: MapMarkerColors.sos,
           lineWidth: 3.0,
           lineDasharray: [2.0, 2.0],
         ),
@@ -1046,13 +1063,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         "peer-return-source",
         "peer-return-layer",
         LineLayerProperties(
-          lineColor: "#FF3D00",
+          lineColor: MapMarkerColors.offRoute,
           lineWidth: 3.0,
           lineDasharray: [2.0, 2.0],
         ),
       );
     } catch (e) {
-      print("Error initializing map layers: $e");
+      debugPrint("Error initializing map layers: $e");
     }
 
     await _renderRoute();
@@ -1083,7 +1100,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       try {
         await mapController!.setGeoJsonSource("route-source", testGeoJson);
       } catch (e) {
-        print('Error rendering test route: $e');
+        debugPrint('Error rendering test route: $e');
       }
       return;
     }
@@ -1106,7 +1123,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       final data = geoJson ?? {"type": "FeatureCollection", "features": []};
       await mapController!.setGeoJsonSource("route-source", data);
     } catch (e) {
-      print("Error rendering route: $e");
+      debugPrint("Error rendering route: $e");
     }
   }
 
@@ -1140,7 +1157,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ),
       );
     } catch (e) {
-      print('Failed to fit camera to test route: $e');
+      debugPrint('Failed to fit camera to test route: $e');
     }
   }
 
@@ -1220,6 +1237,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
+              final navigator = Navigator.of(dialogContext);
               await ref.read(routeRecordingServiceProvider).stopRecording(
                 title: titleController.text,
                 description: descController.text,
@@ -1233,25 +1251,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 await _toggleTracking();
               }
 
+              if (!mounted) return;
               setState(() {
                 _isRecording = false;
               });
-              Navigator.pop(dialogContext);
+              navigator.pop();
 
               // When recording for an expedition, return to it so the newly
               // created route is visible in the expedition's route list.
               final groupId = _groupId;
               if (groupId != null) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Route saved to expedition.')),
-                  );
-                  context.go('/expedition/$groupId');
-                }
+                AppSnackBar.show(context, 'Route saved to expedition.');
+                context.go('/expedition/$groupId');
                 return;
               }
 
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Path saved and syncing...')));
+              AppSnackBar.show(context, 'Path saved and syncing...');
             },
             child: const Text('Save'),
           ),
@@ -1260,116 +1275,74 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  Widget _offlineBanner() {
-    return Positioned(
-      top: 12,
-      left: 12,
-      right: 12,
-      child: Material(
-        color: Colors.black.withValues(alpha: 0.75),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(
-            children: [
-              Icon(
-                _hotspotActive ? Icons.wifi_tethering : Icons.wifi_off,
-                color: Colors.white,
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  _hotspotActive
-                      ? (_userRole == 'GUIDE'
-                          ? 'Offline: hotspot on. Members can join to share location.'
-                          : "Offline: connected to the guide's network.")
-                      : 'Offline: locating peers over the local mesh.',
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  /// Severity-ordered status stack over the map (missing > off-route > offline).
+  /// Returns nothing when all is well so the map stays unobstructed.
+  Widget _statusBanners() {
+    final banners = <Widget>[];
 
-  /// Banner listing members who stopped pinging, with how far they last were.
-  Widget _missingBanner() {
     final missing = _roster.entries
         .where((e) => _missingPeers.contains(e.key))
         .toList();
-    if (missing.isEmpty) return const SizedBox.shrink();
-
-    final labels = missing.map((e) {
-      final name = e.value['name']?.toString() ?? 'Member';
-      final distance = _distanceLabel(_peerLocations[e.key]);
-      return distance == null ? name : '$name ($distance)';
-    }).join(', ');
-
-    return Positioned(
-      top: _offline ? 64 : 12,
-      left: 12,
-      right: 12,
-      child: Material(
-        color: const Color(0xE6B71C1C),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(
-            children: [
-              const Icon(Icons.person_search, color: Colors.white, size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Missing: $labels',
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-              ),
-            ],
-          ),
+    if (missing.isNotEmpty) {
+      final labels = missing.map((e) {
+        final name = e.value['name']?.toString() ?? 'Member';
+        final distance = _distanceLabel(_peerLocations[e.key]);
+        return distance == null ? name : '$name ($distance)';
+      }).join(', ');
+      banners.add(
+        AppBanner(
+          tone: AppBannerTone.danger,
+          iconOverride: Icons.person_search,
+          message: 'Missing: $labels',
+          onTap: () => context.go('/radar'),
         ),
-      ),
-    );
-  }
+      );
+    }
 
-  /// Banner listing members currently off the route and how far they strayed.
-  Widget _offRouteBanner() {
     final strayed =
         _peerOffPath.entries.where((e) => e.value.isOffPath).toList();
-    if (strayed.isEmpty) return const SizedBox.shrink();
-
-    final labels = strayed
-        .map((e) =>
-            '${_peerName(e.key)} (${e.value.distanceMeters.toStringAsFixed(0)} m)')
-        .join(', ');
-
-    final anyMissing =
-        _roster.keys.any((id) => _missingPeers.contains(id));
-    return Positioned(
-      top: (_offline ? 64 : 12) + (anyMissing ? 52 : 0),
-      left: 12,
-      right: 12,
-      child: Material(
-        color: const Color(0xE6E65100),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(
-            children: [
-              const Icon(Icons.wrong_location_outlined,
-                  color: Colors.white, size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Off route: $labels',
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-              ),
-            ],
-          ),
+    if (strayed.isNotEmpty) {
+      final labels = strayed
+          .map((e) =>
+              '${_peerName(e.key)} (${e.value.distanceMeters.toStringAsFixed(0)} m)')
+          .join(', ');
+      banners.add(
+        AppBanner(
+          tone: AppBannerTone.warning,
+          iconOverride: Icons.wrong_location_outlined,
+          message: 'Off route: $labels',
         ),
+      );
+    }
+
+    if (_offline) {
+      final message = _hotspotActive
+          ? (_userRole == 'GUIDE'
+              ? 'Offline: hotspot on. Members can join to share location.'
+              : "Offline: connected to the guide's network.")
+          : 'Offline: locating peers over the local mesh.';
+      banners.add(
+        AppBanner(
+          tone: AppBannerTone.info,
+          iconOverride: _hotspotActive ? Icons.wifi_tethering : Icons.wifi_off,
+          message: message,
+        ),
+      );
+    }
+
+    if (banners.isEmpty) return const SizedBox.shrink();
+
+    return Positioned(
+      top: AppSpacing.md,
+      left: AppSpacing.md,
+      right: AppSpacing.md,
+      child: Column(
+        children: [
+          for (var i = 0; i < banners.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            banners[i],
+          ],
+        ],
       ),
     );
   }
@@ -1388,27 +1361,101 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     return '${km.toStringAsFixed(1)} km';
   }
 
+  /// Sends an SOS for the active expedition using the freshest fix available.
+  Future<void> _triggerRescue() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    final groupId = prefs.getString('active_group_id') ?? '';
+    if (groupId.isEmpty) {
+      AppSnackBar.showError(context, 'No active expedition selected.');
+      return;
+    }
+    // Freshest fix, else the last known location before signal was lost, else
+    // the map target as a last resort.
+    final loc = _currentLocation ?? _lastKnownLocation;
+    if (loc == null) {
+      _showSnack('No location known yet — sending map center.');
+    }
+    await ref.read(emergencyServiceProvider).triggerRescueMode(
+          groupId,
+          loc?.latitude ?? _initialTarget.latitude,
+          loc?.longitude ?? _initialTarget.longitude,
+          null,
+          'User triggered rescue mode.',
+        );
+    if (!mounted) return;
+    AppSnackBar.showSuccess(context, 'Rescue mode activated.');
+  }
+
+  /// Starts or stops guide route recording, preserving the yellow start marker.
+  Future<void> _onRecordPressed() async {
+    if (_isRecording) {
+      _showStopRecordingDialog();
+      if (_startMarkerCircle != null) {
+        await mapController!.removeCircle(_startMarkerCircle!);
+        _startMarkerCircle = null;
+      }
+      return;
+    }
+
+    // Ensure tracking is ON before recording.
+    if (!_isTracking) {
+      await _toggleTracking();
+    }
+
+    await ref.read(routeRecordingServiceProvider).startRecording(
+          initialLat: _currentLocation?.latitude,
+          initialLng: _currentLocation?.longitude,
+          groupId: _groupId,
+        );
+
+    if (_currentLocation != null && mapController != null) {
+      _startMarkerCircle = await mapController!.addCircle(
+        CircleOptions(
+          geometry: _currentLocation!,
+          circleRadius: 6.0,
+          circleColor: MapMarkerColors.start,
+          circleStrokeWidth: 2.0,
+          circleStrokeColor: MapMarkerColors.startStroke,
+        ),
+      );
+    }
+
+    setState(() {
+      _isRecording = true;
+      _isOffPath = false;
+    });
+
+    if (mapController != null) {
+      await mapController!.setLayerVisibility('return-path-layer', false);
+    }
+
+    if (!mounted) return;
+    AppSnackBar.show(context, 'Started recording trail...');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final colors = context.semanticColors;
     return Scaffold(
       appBar: AppBar(
-        title: Text(_regionName ?? 'Travel Map'),
+        title: Text(_regionName ?? 'Map'),
         actions: [
           IconButton(
             icon: const Icon(Icons.radar),
             onPressed: () => context.push('/radar'),
-            tooltip: 'Proximity Radar',
+            tooltip: 'Find missing people',
           ),
           if (!_isDownloaded && _regionName != null)
             IconButton(
               icon: const Icon(Icons.download),
               onPressed: _downloadMap,
-              tooltip: 'Download Offline Map',
+              tooltip: 'Download offline map',
             )
           else if (_isDownloaded)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0),
-              child: Icon(Icons.offline_pin, color: Colors.green),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+              child: Icon(Icons.offline_pin, color: colors.success),
             ),
           IconButton(
             icon: const Icon(Icons.person_outline),
@@ -1428,109 +1475,53 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
             styleString: MapLibreStyles.openfreemapLiberty,
           ),
-          if (_offline) _offlineBanner(),
-          _missingBanner(),
-          _offRouteBanner(),
+          _statusBanners(),
         ],
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          FloatingActionButton(
-            heroTag: 'rescueBtn',
-            onPressed: () async {
-              final emergencySvc = ref.read(emergencyServiceProvider);
-              final prefs = await SharedPreferences.getInstance();
-              final groupId = prefs.getString('active_group_id') ?? '';
-              
-              if (groupId.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Error: No active group selected.'))
-                );
-                return;
-              }
-
-              // Send the freshest fix, else the last known location captured
-              // before signal was lost, else the map target as a last resort.
-              final loc = _currentLocation ?? _lastKnownLocation;
-              if (loc == null) {
-                _showSnack('No location known yet — sending map center.');
-              }
-              await emergencySvc.triggerRescueMode(
-                groupId,
-                loc?.latitude ?? _initialTarget.latitude,
-                loc?.longitude ?? _initialTarget.longitude,
-                null,
-                "User triggered rescue mode."
-              );
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Rescue Mode Activated!'))
-                );
-              }
-            },
-            backgroundColor: Colors.orange,
-            child: const Icon(Icons.warning),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_userRole == 'GUIDE' &&
+                  (_groupId != null || _isRecording)) ...[
+                FloatingActionButton.small(
+                  heroTag: 'recordBtn',
+                  onPressed: _onRecordPressed,
+                  tooltip: _isRecording ? 'Save trail' : 'Record trail',
+                  backgroundColor:
+                      _isRecording ? colors.danger : colors.surfaceElevated,
+                  foregroundColor:
+                      _isRecording ? colors.onDanger : colors.primaryText,
+                  child: Icon(
+                    _isRecording ? Icons.save : Icons.fiber_manual_record,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+              ],
+              FloatingActionButton.small(
+                heroTag: 'trackBtn',
+                onPressed: _toggleTracking,
+                tooltip: _isTracking ? 'Stop tracking' : 'Start tracking',
+                backgroundColor:
+                    _isTracking ? colors.danger : colors.surfaceElevated,
+                foregroundColor:
+                    _isTracking ? colors.onDanger : colors.primaryText,
+                child: Icon(_isTracking ? Icons.stop : Icons.navigation),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          if (_userRole == 'GUIDE' && (_groupId != null || _isRecording))
-            FloatingActionButton(
-              heroTag: 'recordBtn',
-              onPressed: () async {
-                if (_isRecording) {
-                  _showStopRecordingDialog();
-                  if (_startMarkerCircle != null) {
-                    await mapController!.removeCircle(_startMarkerCircle!);
-                    _startMarkerCircle = null;
-                  }
-                } else {
-                  // Ensure tracking is ON
-                  if (!_isTracking) {
-                    await _toggleTracking();
-                  }
-                  
-                  // Start recording with current location if available
-                  await ref.read(routeRecordingServiceProvider).startRecording(
-                    initialLat: _currentLocation?.latitude,
-                    initialLng: _currentLocation?.longitude,
-                    groupId: _groupId,
-                  );
-
-                  // Add a "Start" marker at current position
-                  if (_currentLocation != null && mapController != null) {
-                    _startMarkerCircle = await mapController!.addCircle(
-                      CircleOptions(
-                        geometry: _currentLocation!,
-                        circleRadius: 6.0,
-                        circleColor: '#FFFF00', // Yellow start point
-                        circleStrokeWidth: 2.0,
-                        circleStrokeColor: '#000000',
-                      )
-                    );
-                  }
-
-                  setState(() {
-                    _isRecording = true;
-                    _isOffPath = false; // Reset off-path state
-                  });
-                  
-                  // Explicitly hide return path if it was showing
-                  if (mapController != null) {
-                    await mapController!.setLayerVisibility("return-path-layer", false);
-                  }
-                  
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Started recording trail...')));
-                }
-              },
-              backgroundColor: _isRecording ? Colors.green : Colors.grey,
-              child: Icon(_isRecording ? Icons.save : Icons.fiber_manual_record),
+          const SizedBox(height: AppSpacing.md),
+          SizedBox(
+            width: 220,
+            child: HoldToConfirmButton(
+              label: 'Hold for SOS',
+              holdLabel: 'Keep holding…',
+              icon: Icons.sos,
+              onConfirmed: _triggerRescue,
             ),
-          const SizedBox(height: 16),
-          FloatingActionButton(
-            heroTag: 'trackBtn',
-            onPressed: _toggleTracking,
-            backgroundColor: _isTracking ? Colors.red : Colors.blue,
-            child: Icon(_isTracking ? Icons.stop : Icons.navigation),
           ),
         ],
       ),

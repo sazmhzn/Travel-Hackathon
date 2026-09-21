@@ -1,4 +1,6 @@
 import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
@@ -55,14 +57,14 @@ class LocationTrackingService {
 
       final bool started = await _methodChannel.invokeMethod('startTracking');
       if (started) {
-        print("Native location tracking service started successfully.");
+        debugPrint("Native location tracking service started successfully.");
         // Also connect to Socket.IO when tracking starts
         await _ref.read(socketServiceProvider).connect();
       } else {
         _stopListeningToUpdates();
       }
     } on PlatformException catch (e) {
-      print("Failed to start tracking: '${e.message}'.");
+      debugPrint("Failed to start tracking: '${e.message}'.");
       _stopListeningToUpdates();
     }
   }
@@ -72,17 +74,17 @@ class LocationTrackingService {
       await _methodChannel.invokeMethod('stopTracking');
       _stopListeningToUpdates();
     } on PlatformException catch (e) {
-      print("Failed to stop tracking: '${e.message}'.");
+      debugPrint("Failed to stop tracking: '${e.message}'.");
     }
   }
 
   void _startListeningToUpdates() {
     if (_locationSubscription != null) return;
 
-    print("Subscribing to native location update stream...");
+    debugPrint("Subscribing to native location update stream...");
     _locationSubscription = _eventChannel.receiveBroadcastStream().listen((dynamic event) async {
       final locationData = Map<String, dynamic>.from(event);
-      print("Received location from native: Lat: ${locationData['latitude']}, Lng: ${locationData['longitude']}, Acc: ${locationData['accuracy']}");
+      debugPrint("Received location from native: Lat: ${locationData['latitude']}, Lng: ${locationData['longitude']}, Acc: ${locationData['accuracy']}");
       _locationStreamController.add(locationData);
 
       // Emit to WebSocket only while part of a running expedition. If we were
@@ -109,7 +111,7 @@ class LocationTrackingService {
 
       _checkOffPath(locationData);
     }, onError: (dynamic error) {
-      print('Received error: ${error.message}');
+      debugPrint('Received error: ${error.message}');
     });
   }
 

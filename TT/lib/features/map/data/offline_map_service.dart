@@ -1,5 +1,7 @@
 import 'dart:io';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api_client.dart';
@@ -39,13 +41,13 @@ class OfflineMapService {
         file.path,
         onReceiveProgress: (received, total) {
           if (total != -1) {
-            print('Downloading $regionName: ${(received / total * 100).toStringAsFixed(0)}%');
+            debugPrint('Downloading $regionName: ${(received / total * 100).toStringAsFixed(0)}%');
           }
         },
       );
-      print('Download complete: ${file.path}');
+      debugPrint('Download complete: ${file.path}');
     } catch (e) {
-      print('Error downloading map: $e');
+      debugPrint('Error downloading map: $e');
       rethrow;
     }
   }

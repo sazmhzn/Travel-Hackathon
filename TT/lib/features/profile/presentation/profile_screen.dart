@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/app_theme.dart';
+import '../../../core/extensions/context_extensions.dart';
+import '../../../core/widgets/widgets.dart';
 import '../../auth/data/auth_service.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -44,7 +45,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppTheme.danger),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Log out'),
           ),
@@ -165,7 +168,7 @@ class _ProfileHeader extends StatelessWidget {
                     ],
                   ),
                 ),
-                _RolePill(isGuide: isGuide),
+                AppRolePill(isGuide: isGuide),
               ],
             ),
             if (phone.isNotEmpty) ...[
@@ -195,34 +198,6 @@ class _ProfileHeader extends StatelessWidget {
   }
 }
 
-class _RolePill extends StatelessWidget {
-  const _RolePill({required this.isGuide});
-
-  final bool isGuide;
-
-  @override
-  Widget build(BuildContext context) {
-    final color =
-        isGuide ? AppTheme.accent : Theme.of(context).colorScheme.primary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Text(
-        isGuide ? 'Guide' : 'Member',
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-}
-
 class _ProfileRow extends StatelessWidget {
   const _ProfileRow({
     required this.icon,
@@ -241,7 +216,7 @@ class _ProfileRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final color = danger ? AppTheme.danger : scheme.onSurface;
+    final color = danger ? context.semanticColors.danger : scheme.onSurface;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -250,7 +225,7 @@ class _ProfileRow extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
-        leading: Icon(icon, color: danger ? AppTheme.danger : scheme.primary),
+        leading: Icon(icon, color: danger ? context.semanticColors.danger : scheme.primary),
         title: Text(
           title,
           style: TextStyle(fontWeight: FontWeight.w700, color: color),

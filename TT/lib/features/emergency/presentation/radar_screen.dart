@@ -8,8 +8,12 @@ import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../../core/app_theme.dart';
+import '../../../core/extensions/context_extensions.dart';
 import '../../../core/socket_service.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_semantic_colors.dart';
+import '../../../core/theme/app_sizes.dart';
+import '../../../core/widgets/widgets.dart';
 import '../../auth/data/auth_service.dart';
 import '../../groups/data/group_service.dart';
 
@@ -138,9 +142,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
         .read(socketServiceProvider)
         .markMemberFound(target.groupId, target.userId, _myName);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${target.name} marked as found.')),
-      );
+      AppSnackBar.showSuccess(context, '${target.name} marked as found.');
     }
   }
 
@@ -148,9 +150,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
   /// device is not in Bluetooth proximity).
   void _goToLastKnown(_MissingTarget target) {
     if (!target.hasLocation) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No last known location for ${target.name}.')),
-      );
+      AppSnackBar.showError(context, 'No last known location for ${target.name}.');
       return;
     }
     final params = {
@@ -283,11 +283,9 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
               statuses[Permission.location]?.isGranted == true;
       if (_permissionGranted == false) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content:
-                  Text('Bluetooth permission is required to find nearby members.'),
-            ),
+          AppSnackBar.showError(
+            context,
+            'Bluetooth permission is required to find nearby members.',
           );
         }
         return;
@@ -311,7 +309,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
         androidScanMode: AndroidScanMode.lowLatency,
       );
     } catch (e) {
-      print('Radar scan error: $e');
+      debugPrint('Radar scan error: $e');
     }
   }
 
@@ -367,7 +365,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Proximity Radar'),
+        title: const Text('Find missing people'),
         actions: [
           IconButton(
             icon: const Icon(Icons.person_outline),
@@ -377,7 +375,7 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppLoading(message: 'Loading missing members...')
           : Column(
               children: [
                 _scopeHeader(detected),
@@ -412,53 +410,106 @@ class _RadarScreenState extends ConsumerState<RadarScreen> {
   }
 
   Widget _scopeHeader(int detected) {
-    final scheme = Theme.of(context).colorScheme;
+    final colors = context.semanticColors;
     final scope = _scopeLabel.isEmpty ? 'Watching' : _scopeLabel;
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            _isGuide ? Icons.hiking : Icons.groups,
-            color: scheme.primary,
+    final hasMissing = _targets.isNotEmpty;
+    final tone = hasMissing ? colors.danger : colors.success;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        decoration: BoxDecoration(
+          color: hasMissing ? colors.dangerSurface : colors.successSurface,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(
+            color: hasMissing
+                ? colors.dangerBorder
+                : colors.success.withValues(alpha: 0.3),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(
-                  _isGuide ? 'Missing members' : 'Missing people nearby',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '$scope · ${_targets.length} missing · $detected detected',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: scheme.onSurfaceVariant,
+                Icon(_isGuide ? Icons.hiking : Icons.groups, color: tone),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Text(
+                    hasMissing
+                        ? (_isGuide
+                            ? 'Missing members'
+                            : 'Missing people nearby')
+                        : 'Everyone is accounted for',
+                    style: context.textTheme.titleMedium?.copyWith(
+                      color: colors.primaryText,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
+                if (_isScanning)
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colors.brand,
+                    ),
+                  ),
               ],
             ),
-          ),
-          if (_isScanning)
-            SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: scheme.primary,
+            const SizedBox(height: 6),
+            Text(
+              hasMissing
+                  ? '$scope · ${_targets.length} missing · $detected detected'
+                  : '$scope · no one missing',
+              style: context.textTheme.bodySmall?.copyWith(
+                color: colors.secondaryText,
               ),
             ),
-        ],
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              children: [
+                _SignalLegendDot(color: colors.danger, label: 'Very close'),
+                const SizedBox(width: AppSpacing.md),
+                _SignalLegendDot(color: colors.accent, label: 'Nearby'),
+                const SizedBox(width: AppSpacing.md),
+                _SignalLegendDot(color: AppColors.blue50, label: 'In range'),
+              ],
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _SignalLegendDot extends StatelessWidget {
+  const _SignalLegendDot({required this.color, required this.label});
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: context.textTheme.labelSmall?.copyWith(
+            color: context.semanticColors.secondaryText,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -476,75 +527,73 @@ class _RadarTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final colors = context.semanticColors;
     final detected = status.detected;
     final rssi = status.rssi;
-    final color = detected ? _signalColor(rssi!) : scheme.outline;
+    final signal = detected ? _signalColor(colors, rssi!) : colors.tertiaryText;
 
-    return Opacity(
-      opacity: detected ? 1.0 : 0.5,
-      child: Card(
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        child: ListTile(
-          leading: CircleAvatar(
-            backgroundColor: color.withValues(alpha: 0.15),
-            foregroundColor: color,
-            child: Icon(
-              detected ? _signalIcon(rssi!) : Icons.bluetooth_searching,
-            ),
+    return Card(
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      color: detected ? colors.surface : colors.surfaceMuted,
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: signal.withValues(alpha: detected ? 0.15 : 0.1),
+          foregroundColor: signal,
+          child: Icon(
+            detected ? _signalIcon(rssi!) : Icons.bluetooth_searching,
           ),
-          title: Text(
-            status.target.name,
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: detected ? null : scheme.onSurfaceVariant,
-            ),
-          ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(status.target.groupName),
-              const SizedBox(height: 2),
-              if (detected)
-                Text(
-                  '${_signalLabel(rssi!)} · $rssi dBm',
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                )
-              else
-                Text(
-                  status.target.scannable ? 'Not in range' : 'No Bluetooth ID',
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 12,
-                  ),
-                ),
-            ],
-          ),
-          trailing: detected
-              ? TextButton.icon(
-                  onPressed: onMarkFound,
-                  icon: const Icon(Icons.check_circle_outline, size: 18),
-                  label: const Text('Found'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppTheme.success,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
-                )
-              : (status.target.hasLocation
-                  ? TextButton.icon(
-                      onPressed: onGoToLastKnown,
-                      icon: const Icon(Icons.place_outlined, size: 18),
-                      label: const Text('Last location'),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                    )
-                  : const SizedBox.shrink()),
         ),
+        title: Text(
+          status.target.name,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: detected ? colors.primaryText : colors.secondaryText,
+          ),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              status.target.groupName,
+              style: TextStyle(color: colors.secondaryText, fontSize: 13),
+            ),
+            const SizedBox(height: 2),
+            if (detected)
+              Text(
+                '${_signalLabel(rssi!)} · $rssi dBm',
+                style: TextStyle(
+                  color: signal,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              )
+            else
+              Text(
+                status.target.scannable ? 'Not in range' : 'No Bluetooth ID',
+                style: TextStyle(color: colors.tertiaryText, fontSize: 12),
+              ),
+          ],
+        ),
+        trailing: detected
+            ? TextButton.icon(
+                onPressed: onMarkFound,
+                icon: const Icon(Icons.check_circle_outline, size: 18),
+                label: const Text('Found'),
+                style: TextButton.styleFrom(
+                  foregroundColor: colors.success,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+              )
+            : (status.target.hasLocation
+                ? TextButton.icon(
+                    onPressed: onGoToLastKnown,
+                    icon: const Icon(Icons.place_outlined, size: 18),
+                    label: const Text('Last location'),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                  )
+                : const SizedBox.shrink()),
       ),
     );
   }
@@ -557,39 +606,29 @@ class _EmptyRadar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final message = isGuide
         ? 'No missing members in this expedition.'
         : 'No missing people across your expeditions.';
 
     return ListView(
-      padding: const EdgeInsets.all(32),
+      padding: const EdgeInsets.all(AppSpacing.xxl),
       children: [
-        const SizedBox(height: 48),
-        Icon(Icons.person_search, size: 56, color: scheme.outline),
-        const SizedBox(height: 16),
-        Text(
-          message,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Missing members show up here and are tracked by Bluetooth as you search.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: scheme.onSurfaceVariant),
+        const SizedBox(height: AppSpacing.xl),
+        AppEmptyState(
+          icon: Icons.person_search_outlined,
+          title: message,
+          message:
+              'Missing members show up here and are tracked by Bluetooth as you search.',
         ),
       ],
     );
   }
 }
 
-const Color _coldSignalColor = Color(0xFF2F80ED);
-
-Color _signalColor(int rssi) {
-  if (rssi > -60) return AppTheme.danger;
-  if (rssi > -80) return AppTheme.accent;
-  return _coldSignalColor;
+Color _signalColor(AppSemanticColors colors, int rssi) {
+  if (rssi > -60) return colors.danger;
+  if (rssi > -80) return colors.accent;
+  return AppColors.blue50;
 }
 
 String _signalLabel(int rssi) {

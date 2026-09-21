@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api_client.dart';
 
@@ -27,7 +28,7 @@ class EmergencyService {
       );
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
-      print("Failed to trigger emergency over network (offline?): $e");
+      debugPrint("Failed to trigger emergency over network (offline?): $e");
       return false;
     }
   }
@@ -45,7 +46,7 @@ class EmergencyService {
       );
       return response.statusCode == 200;
     } catch (e) {
-      print("Failed to resolve emergency: $e");
+      debugPrint("Failed to resolve emergency: $e");
       return false;
     }
   }
